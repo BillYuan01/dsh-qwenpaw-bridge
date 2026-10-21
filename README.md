@@ -15,7 +15,7 @@ in its own repository; the bridge can be installed and tested without it.
 | # | Capability | Wire surface | Fail-soft behavior |
 |---|---|---|---|
 | 1 | **Live streaming** | standard `session/update` with `agent_message_chunk` / `agent_thought_chunk` from `agent/assistant-stream` `text-delta` / `reasoning-delta`; duplicate committed text/thought suppressed | event missing / subscription fails / client opts out → stock committed projection, unchanged |
-| 2 | **Permission presets, hot-switchable** | `_meta['qwenpaw'].permission_presets` + a `permission_mode` select in `configOptions`; switch through `session/set_config_option` or `qwenpaw/permission/set` | `ctx.permissionPresets` missing → no option, no interception |
+| 2 | **Permission presets, hot-switchable** | `_meta['qwenpaw'].permission_presets` + a `permission_mode` select in `configOptions`; switch through `session/set_config_option` or `qwenpaw/permission/set` | `ctx.permissionPresets` missing → no option advertised, and `permission_mode` switches are rejected with `-32602` (no silent fallback) |
 | 3 | **Model catalog** | `_meta['qwenpaw'].models` on `initialize` and `session/new`; every model carries its `reasoning_efforts` | `ctx.llm` lookup failure → field omitted, no crash |
 | 4 | Tool kind polish (optional) | `tool_call.kind` mapped from the tool name (`read`/`edit`/`execute`/`search`/`fetch`) | unknown names stay `other` |
 
@@ -46,12 +46,12 @@ do not bypass it for a real deployment.
 ACP app and therefore no `acp-app-startup` row.
 
 ```sh
-# creates the profile and boots it; stop the ACP session after creation
-dsh --profile qwenpaw --from-default-profile acp
-
-# or initialize the profile and exit immediately:
+# initialize the profile and exit immediately (do not boot ACP here)
 dsh --profile qwenpaw --from-default-profile acp --dump-config >/dev/null
 ```
+
+Without `--dump-config` the profile boots its app, which for `acp` waits on
+stdin; use the command above for setup.
 
 ### 2. Install the bridge into that profile
 
