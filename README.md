@@ -1,8 +1,11 @@
-# `@local/dsh-qwenpaw-bridge` v0.1
+# dsh-qwenpaw-bridge
 
 A **DSH bundle plugin** that upgrades the stock `acp` profile for QwenPaw
 without touching DSH core. It keeps the wire **standard ACP**: QwenPaw still
 talks to `@deepseek-ai/dsh-acp`, so the adapter needs no private protocol.
+
+This is the standalone repository for the bridge. The QwenPaw-side plugin lives
+in its own repository; the bridge can be installed and tested without it.
 
 > The upstream half of this idea (opt-in streaming inside `dsh-acp` itself)
 > remains open; this package is the plugin half and needs no DSH core changes.
@@ -19,27 +22,93 @@ talks to `@deepseek-ai/dsh-acp`, so the adapter needs no private protocol.
 Everything else (images, tool updates, usage, config updates, MCP, resume,
 cancel) is forwarded verbatim.
 
+## Requirements
+
+| Requirement | Value |
+|---|---|
+| Node | `>= 22` |
+| DSH | `>= 0.2.0-rc.2 < 0.3.0-0` (the `<0.3.0-0` upper bound excludes 0.3 prereleases) |
+| `@deepseek-ai/dsh-acp` | same range, supplied by the `dsh-acp-app` bundle |
+| `@agentclientprotocol/sdk` | `^1.4.0`, supplied by `@deepseek-ai/dsh-acp` |
+| pnpm | required by `dsh plugin add` (the CLI shells out to pnpm) |
+| Client | any ACP client; QwenPaw is the reference consumer |
+
+DSH enforces the declared peer ranges before it loads a plugin. An incompatible
+DSH needs an explicit `dsh plugin --profile <name> allow-version ...` exemption;
+do not bypass it for a real deployment.
+
 ## Install
 
-```sh
-# into the real DSH home
-DSH_HOME=~/.dsh dsh-qwenpaw-bridge/profile/install.sh
-DSH_HOME=~/.dsh dsh --profile qwenpaw
-```
+### 1. Create the profile from the shipped `acp` template
 
-The profile is `dsh-base` + `dsh-acp-app` + this bundle. The bundle patch
-disables the stock `acp` row and inserts `qwenpaw-bridge`; `acp-app-startup`
-still owns stdin EOF and `--help`.
-
-For a throwaway home (used by `TESTING.md` and `test/probe.py`):
+`qwenpaw` is not a shipped profile, so create it first. This is important:
+`dsh plugin add` on a brand-new name initializes only `dsh-base`, which has no
+ACP app and therefore no `acp-app-startup` row.
 
 ```sh
-mkdir -p /tmp/qp-home/profiles/qwenpaw/node_modules/@local
-ln -s "$PWD/dsh-qwenpaw-bridge" /tmp/qp-home/profiles/qwenpaw/node_modules/@local/dsh-qwenpaw-bridge
-cp dsh-qwenpaw-bridge/profile/package.json /tmp/qp-home/profiles/qwenpaw/
-# edit the file: dependency to the absolute bridge path
-DSH_HOME=/tmp/qp-home dsh --profile qwenpaw
+# creates the profile and boots it; stop the ACP session after creation
+dsh --profile qwenpaw --from-default-profile acp
+
+# or initialize the profile and exit immediately:
+dsh --profile qwenpaw --from-default-profile acp --dump-config >/dev/null
 ```
+
+### 2. Install the bridge into that profile
+
+```sh
+# published package
+dsh plugin --profile qwenpaw add dsh-qwenpaw-bridge
+
+# local checkout (works before the first npm release)
+dsh plugin --profile qwenpaw add /absolute/path/to/dsh-qwenpaw-bridge
+```
+
+`dsh plugin add` runs pnpm in `$DSH_HOME/profiles/qwenpaw`, writes the
+`package.json` dependency and appends the bundle to `dsh.profile.bundles`. It
+needs pnpm on `PATH`; without pnpm the command exits 127 and installs nothing.
+
+After the install the profile is:
+
+```text
+@deepseek-ai/dsh-base
+@deepseek-ai/dsh-acp-app
+dsh-qwenpaw-bridge
+```
+
+The bundle patch disables the stock `acp` row and inserts `qwenpaw-bridge`.
+`acp-app-startup` is left in place: it owns stdin EOF and `--help`.
+
+### 3. Supply the model route
+
+The bundle defaults to `ctx.agentDefaultModel`. To pin a route, merge
+`examples/profile/cordis.patch.yml` into
+`$DSH_HOME/profiles/qwenpaw/cordis.patch.yml` and edit the provider, models and
+API-key variable. Do **not** overwrite a patch that already has a route, and do
+**not** add a second `qwenpaw-bridge` row — the bundle already inserts one.
+
+The sample contains only `llm-pi-ai` + `agent-default-model`; the bridge row is
+intentionally absent.
+
+### 4. Boot
+
+```sh
+dsh --profile qwenpaw
+```
+
+## Verify the composition
+
+```sh
+dsh --profile qwenpaw --dump-config > /tmp/qwenpaw.dump
+
+grep -A8 -- "- id: qwenpaw-bridge" /tmp/qwenpaw.dump
+grep -A12 -- "- id: acp$" /tmp/qwenpaw.dump | grep "disabled: true"
+grep -A2 -- "- id: acp-app-startup" /tmp/qwenpaw.dump
+grep -c -- "- id: qwenpaw-bridge" /tmp/qwenpaw.dump   # must print 1
+```
+
+Expected: `qwenpaw-bridge` exists exactly once, its `name` is
+`dsh-qwenpaw-bridge`, the `acp` row has `disabled: true`, and
+`acp-app-startup` is present.
 
 ## `_meta['qwenpaw']` contract (protocol = 1)
 
@@ -51,7 +120,7 @@ DSH_HOME=/tmp/qp-home dsh --profile qwenpaw
     "qwenpaw": {
       "protocol": 1,
       "bridge": "dsh-qwenpaw-bridge",
-      "version": "0.1.0",
+      "version": "0.1.0",              // always package.json.version
       "streaming": true,
       "models": [
         {
@@ -93,6 +162,9 @@ DSH_HOME=/tmp/qp-home dsh --profile qwenpaw
 }
 ```
 
+The model count is **route-dependent**. Do not hard-code a number in a client;
+assert non-empty, per-model efforts, and exactly one `default: true`.
+
 ### Client-side switches
 
 ```jsonc
@@ -116,7 +188,7 @@ To opt out of live deltas for a connection, send
 
 ## Package layout
 
-```
+```text
 lib/index.js      plugin entry: inject acp services + acpAppStartup, build the ACP stream, call acp.apply
 lib/inbound.js    bridge-owned requests; permission_mode interception
 lib/outbound.js   _meta decoration, committed-duplicate suppression, config options
@@ -124,11 +196,46 @@ lib/stream.js     agent/assistant-stream -> session/update; duplicate flags
 lib/catalog.js    provider/model/efforts discovery for _meta
 lib/presets.js    ctx.permissionPresets projection + switch
 lib/toolkind.js   tool name -> ACP kind
-lib/protocol.js   _meta key, config ids, response helpers
+lib/protocol.js   _meta key, bridge name/version, config ids, response helpers
 cordis.patch.yml  disables `acp`, inserts `qwenpaw-bridge`
-profile/          `qwenpaw` profile template + install.sh
+examples/profile/cordis.patch.yml
+                  sample model route (no bridge row)
 test/probe.py     live acceptance probe (streaming / meta / presets / committed fallback)
+test/spike_lib.py self-contained ACP client helpers used by the probe
+test/protocol.test.js
+                  asserts BRIDGE_VERSION == package.json.version
+CHANGELOG.md
 ```
+
+There is no `profile/install.sh` and no static profile `package.json` in this
+repository: profile creation and package installation are owned by `dsh`.
+
+## Development checks
+
+```sh
+for f in lib/*.js; do node --check "$f"; done
+node --test test/protocol.test.js
+npm pack --dry-run
+```
+
+The tarball must contain `lib/`, `cordis.patch.yml`, `README.md`, `LICENSE` and
+`CHANGELOG.md`, and must not contain `profile/install.sh`, a static profile
+manifest, or any reference to the old scoped package name.
+
+The live probe requires an installed `qwenpaw` profile and real model
+credentials:
+
+```sh
+~/.qwenpaw/venv/bin/python test/probe.py \
+    --dsh-home "$DSH_HOME" --profile qwenpaw
+
+# committed-mode fallback
+~/.qwenpaw/venv/bin/python test/probe.py \
+    --dsh-home "$DSH_HOME" --profile qwenpaw --committed
+```
+
+The probe never creates or rewrites a profile. If the profile is missing it
+reports `not-verified` and exits 2.
 
 ## Compatibility / failure policy
 
@@ -138,7 +245,13 @@ test/probe.py     live acceptance probe (streaming / meta / presets / committed 
 - **Non-public dependencies are optional**: `agent/assistant-stream`,
   `ctx.permissionPresets`, `ctx.llm` catalog calls, and `ctx.agentDefaultModel`
   are all read defensively. Missing anything degrades to plain committed ACP.
-- Peer versions are pinned to the tested runtime
-  (`@deepseek-ai/dsh-acp 0.2.0-rc.2`, `@agentclientprotocol/sdk ^1.4.0`).
+- **Peer range**: the DSH packages are declared as
+  `>=0.2.0-rc.2 <0.3.0-0`. The upper bound deliberately excludes `0.3.0-rc.1`;
+  a 0.3 runtime must be retested before widening the range.
 
-See `TESTING.md` for the measured evidence.
+See `TESTING.md` for historical monorepo evidence and the evidence measured for
+this standalone repository.
+
+## License
+
+MIT. See `LICENSE`.

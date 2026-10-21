@@ -12,7 +12,7 @@
 
 - insert:
     - id: qwenpaw-bridge
-      name: '@local/dsh-qwenpaw-bridge'
+      name: 'dsh-qwenpaw-bridge'
       # The bridge waits for acpAppStartup itself, so --help still starts no
       # transport. provider/model may be supplied here or through the profile
       # patch; otherwise the bridge falls back to ctx.agentDefaultModel.

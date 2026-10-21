@@ -1,0 +1,38 @@
+# Sample user patch for a `qwenpaw` profile.
+#
+# The bridge bundle already disables the stock `acp` row and inserts
+# `qwenpaw-bridge` with streaming/permissionPresets/models enabled. Do NOT add a
+# second `qwenpaw-bridge` row here: duplicate rows make the profile ambiguous.
+#
+# This layer only supplies the deployment's model route. Replace the provider,
+# models and API-key variable with your own. If you omit it, the bridge falls
+# back to ctx.agentDefaultModel for the initial route.
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      opencode-go:
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash
+            contextWindow: 1000000
+            maxTokens: 384000
+            input:
+              - text
+              - image
+          - id: glm-5.3-flash
+            name: GLM-5.3-Flash
+            contextWindow: 1000000
+            maxTokens: 131072
+            input:
+              - text
+              - image
+        apiKeyEnv: OPENCODE_GO_API_KEY
+
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: opencode-go
+    model: deepseek-v4.1-flash
+    reasoningEffort: max
