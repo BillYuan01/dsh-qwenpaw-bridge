@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 — 2026-10-21
+
+- Add `status-plugin/` (`dsh-qwenpaw-bridge-status` 0.1.0), a host-only DSH
+  **web** plugin that shows a QwenPaw connection card under 插件 → 已安装.
+  It probes `http://127.0.0.1:8088/api/harnesses` at web-profile boot and
+  reports green (connected) or red (disconnected).
+- Repository release: the bridge wire contract (`_meta.qwenpaw`, protocol 1)
+  and the `lib/*` behavior are unchanged from 0.1.0. The 0.2.0 bump marks the
+  repo-level release that also ships the status plugin.
+
 ## 0.1.0 — 2026-10-21
 
 - Split `dsh-qwenpaw-bridge` out of the `qwenpaw-dsh` monorepo into its own

@@ -1,6 +1,6 @@
 {
   "name": "dsh-qwenpaw-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH bundle plugin that upgrades the ACP profile for QwenPaw: live assistant streaming, hot-switchable permission presets, and a one-shot model catalog in _meta.qwenpaw.",
   "license": "MIT",
   "type": "module",
