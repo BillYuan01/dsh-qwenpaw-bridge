@@ -1,0 +1,38 @@
+{
+  "name": "dsh-qwenpaw-bridge-status",
+  "version": "0.1.0",
+  "description": "QwenPaw 桥接状态：绿色=已连接，红色=未连接（启动时检测 127.0.0.1:8088）",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "locale",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BillYuan01/dsh-qwenpaw-bridge.git",
+    "directory": "status-plugin"
+  },
+  "homepage": "https://github.com/BillYuan01/dsh-qwenpaw-bridge/tree/main/status-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/BillYuan01/dsh-qwenpaw-bridge/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "qwenpaw"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

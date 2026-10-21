@@ -1,0 +1,6 @@
+# Web-profile status row for the QwenPaw <-> DSH bridge.
+# The bridge itself is an ACP transport and cannot run inside the web profile;
+# this row only reports whether QwenPaw's dsh backend is reachable at boot.
+- insert:
+    - id: qwenpaw-bridge-status
+      name: 'dsh-qwenpaw-bridge-status'

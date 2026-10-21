@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "QwenPaw bridge status",
+    "description": "Green = connected, red = disconnected (probed at startup on 127.0.0.1:8088)"
+  }
+}

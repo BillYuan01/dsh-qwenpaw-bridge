@@ -205,11 +205,33 @@ test/probe.py     live acceptance probe (streaming / meta / presets / committed 
 test/spike_lib.py self-contained ACP client helpers used by the probe
 test/protocol.test.js
                   asserts BRIDGE_VERSION == package.json.version
+status-plugin/    host-only web-profile plugin: QwenPaw connection card
 CHANGELOG.md
 ```
 
 There is no `profile/install.sh` and no static profile `package.json` in this
 repository: profile creation and package installation are owned by `dsh`.
+
+## Web UI status card (`status-plugin/`)
+
+`status-plugin/` is a separate, host-only DSH **web** plugin. It adds a
+**QwenPaw 桥接状态** card under **插件 → 已安装** and probes QwenPaw's
+`/api/harnesses` when the web profile boots:
+
+- **Green + 运行中** — QwenPaw is reachable and its `dsh` backend is available.
+- **Red + 失败** — QwenPaw is down, or the `dsh` backend is unavailable; open
+  the card for the error.
+
+Install it into the **web** profile (not `qwenpaw`):
+
+```sh
+dsh plugin --profile web add /path/to/dsh-qwenpaw-bridge/status-plugin
+# restart dsh web / dsh-web.service
+```
+
+The bridge itself remains the `qwenpaw`-profile package at this repository's
+root; the status card only reports whether QwenPaw is connected. It samples at
+web-profile boot, so a later disconnect needs a web restart to turn red.
 
 ## Development checks
 
