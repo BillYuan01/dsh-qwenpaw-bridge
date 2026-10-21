@@ -5,7 +5,8 @@ without touching DSH core. It keeps the wire **standard ACP**: QwenPaw still
 talks to `@deepseek-ai/dsh-acp`, so the adapter needs no private protocol.
 
 This is the standalone repository for the bridge. The QwenPaw-side plugin lives
-in its own repository; the bridge can be installed and tested without it.
+in [`BillYuan01/qwenpaw-dsh`](https://github.com/BillYuan01/qwenpaw-dsh); the
+bridge can be installed and tested without it.
 
 > The upstream half of this idea (opt-in streaming inside `dsh-acp` itself)
 > remains open; this package is the plugin half and needs no DSH core changes.
