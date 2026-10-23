@@ -28,15 +28,20 @@ cancel) is forwarded verbatim.
 | Requirement | Value |
 |---|---|
 | Node | `>= 22` |
-| DSH | `>= 0.2.0-rc.2 < 0.3.0-0` (the `<0.3.0-0` upper bound excludes 0.3 prereleases) |
+| DSH | `>= 0.2.0-rc.2 < 0.3.0-0`, declared as `engines.dsh` (the `<0.3.0-0` upper bound excludes 0.3 prereleases) |
 | `@deepseek-ai/dsh-acp` | same range, supplied by the `dsh-acp-app` bundle |
 | `@agentclientprotocol/sdk` | `^1.4.0`, supplied by `@deepseek-ai/dsh-acp` |
 | pnpm | required by `dsh plugin add` (the CLI shells out to pnpm) |
 | Client | any ACP client; QwenPaw is the reference consumer |
 
-DSH enforces the declared peer ranges before it loads a plugin. An incompatible
-DSH needs an explicit `dsh plugin --profile <name> allow-version ...` exemption;
-do not bypass it for a real deployment.
+DSH checks `engines.dsh` before it loads a plugin, and falls back to the
+`@deepseek-ai/dsh*` peer ranges only when that field is absent. Both are
+evaluated with prerelease-inclusive semver (`includePrerelease: true` in
+`dsh-app-boot`), which is why the prerelease versions this project targets —
+`0.2.0-rc.2`, `0.2.1-rc.2` — satisfy the range. An incompatible DSH needs an
+explicit `dsh plugin --profile <name> allow-version ...` exemption; do not
+bypass it for a real deployment. An unsatisfied range drops the plugin silently
+at profile boot, so verify after upgrading DSH.
 
 ## Install
 
@@ -268,9 +273,10 @@ reports `not-verified` and exits 2.
 - **Non-public dependencies are optional**: `agent/assistant-stream`,
   `ctx.permissionPresets`, `ctx.llm` catalog calls, and `ctx.agentDefaultModel`
   are all read defensively. Missing anything degrades to plain committed ACP.
-- **Peer range**: the DSH packages are declared as
-  `>=0.2.0-rc.2 <0.3.0-0`. The upper bound deliberately excludes `0.3.0-rc.1`;
-  a 0.3 runtime must be retested before widening the range.
+- **Version range**: `engines.dsh` (and, for older DSH versions that only read
+  peers, the `@deepseek-ai/dsh*` peer ranges) is `>=0.2.0-rc.2 <0.3.0-0`. The
+  upper bound deliberately excludes `0.3.0-rc.1`; a 0.3 runtime must be
+  retested before widening the range.
 
 See `TESTING.md` for historical monorepo evidence and the evidence measured for
 this standalone repository.

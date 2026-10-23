@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.1 — 2026-10-23
+
+- Declare `engines.dsh` (`>=0.2.0-rc.2 <0.3.0-0`) alongside the existing peer
+  ranges. DSH 0.2.1 evaluates `engines.dsh` first and only falls back to the
+  `@deepseek-ai/dsh*` peer ranges when it is absent; both paths use
+  prerelease-inclusive semver. The supported range is unchanged — 0.2.1
+  prereleases (`0.2.1-rc.1`, `0.2.1-rc.2`) already satisfied the peer range
+  under the same rule, so this release makes the constraint explicit in one
+  place instead of relying on the fallback.
+- No wire or behavior change: `_meta.qwenpaw` protocol stays `1` and `lib/*`
+  is untouched apart from `BRIDGE_VERSION`.
+- Docs: README now states the enforcement order and that an unsatisfied range
+  drops the plugin silently at profile boot.
+
+Verified on DSH `0.2.1-rc.2`: probe 19/19 (177 and 89 live chunks on two
+profiles, zero committed duplicates, permission switch keeps the PID), contract
+suite s01–s06 6/6, and a negative test (range set to `<0.2.0`) that correctly
+dropped the plugin.
+
 ## 0.2.0 — 2026-10-21
 
 - Add `status-plugin/` (`dsh-qwenpaw-bridge-status` 0.1.0), a host-only DSH
