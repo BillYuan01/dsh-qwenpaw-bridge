@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add an optional source-checkout-only `tools/dsh-env-sync.py` helper for
+  single-writer headless environment synchronization, with 20 fake-only
+  behavior checks and 5 atomic-write checks. Document manual use, conservative
+  encoding, file-level symlink refusal, and platform/security limitations.
+- Add optional fake-only catalog and credential-service sampling diagnostics,
+  with checkout-relative ACP helper imports and explicit isolation/output
+  cautions. Timing samples do not establish discovery causality.
+- No bridge runtime, package version, or npm file-list changes. No automatic
+  installation, cron job, tag, or npm publication.
+
 ## 0.2.1 — 2026-10-23
 
 - Declare `engines.dsh` (`>=0.2.0-rc.2 <0.3.0-0`) alongside the existing peer

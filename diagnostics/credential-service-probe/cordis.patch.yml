@@ -1,0 +1,3 @@
+- insert:
+    - id: diag-cred-probe
+      name: 'diag-cred-probe'

@@ -238,6 +238,14 @@ The bridge itself remains the `qwenpaw`-profile package at this repository's
 root; the status card only reports whether QwenPaw is connected. It samples at
 web-profile boot, so a later disconnect needs a web restart to turn red.
 
+## Optional source-checkout helpers
+
+See [`tools/README.md`](tools/README.md) for the opt-in headless environment-sync
+helper, its safety/portability limits, and fake-only tests; see
+[`diagnostics/README.md`](diagnostics/README.md) for optional fake-only diagnostic
+samples. These files do not change the bridge runtime and are not included by
+the npm package's `files` list. No automatic installation or scheduling is added.
+
 ## Development checks
 
 ```sh

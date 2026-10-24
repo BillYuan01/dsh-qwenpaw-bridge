@@ -5,3 +5,11 @@ __pycache__/
 .contract-test/
 *.log
 .DS_Store
+
+# Local credentials and generated diagnostic artifacts (never publish)
+.env
+.env.*
+.credentials.yaml
+.credentials.*
+diag-cred-report*.json
+*.tar.gz
