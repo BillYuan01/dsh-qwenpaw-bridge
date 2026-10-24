@@ -4,8 +4,10 @@
 
 **English overview:** A DSH-side bundle that reuses the stock ACP transport and adds live assistant chunks, hot-switchable permission presets, and an additive `_meta.qwenpaw` catalog. Linux has recorded verification; macOS and Windows bridge support remain unverified. Optional source-only helpers are separate from the bridge runtime.
 
-- 当前根包版本：**0.2.1**；`_meta.qwenpaw` 协议版本：**1**。两者不是同一个版本号。
-- 本仓库是 DSH 端；QwenPaw 端插件在 [qwenpaw-dsh](https://github.com/BillYuan01/qwenpaw-dsh)。本桥接器可独立安装和测试。
+- 当前根包版本：**1.1.0**；`_meta.qwenpaw` 协议版本：**1**。两者不是同一个版本号。
+- 本仓库是 DSH 端；QwenPaw 端插件在 [qwenpaw-dsh](https://github.com/BillYuan01/qwenpaw-dsh)，本次同为 **v1.1.0**。版号相同表示配套发布，不表示 DSH 核心版本也是 1.1.0（兼容范围仍是 `>=0.2.0-rc.2 <0.3.0-0`），也不承诺以后永远同步。
+- 独立的 web 状态卡 `status-plugin/` 仍是 **0.1.0**，不随根包 1.1.0 提升；它是可选组件，不是桥本体。
+- 本桥接器可独立安装和测试；两个仓库也可以各自继续演进。
 - 快速入口：[安装](#安装与启动)、[协议](#wire-contract协议版本-1)、[测试与验证边界](#测试与验证边界)、[贡献指南](AGENTS.md)。
 
 ## 做什么，不做什么
@@ -40,6 +42,14 @@ DSH 优先检查 `engines.dsh`；该字段缺失时才回退到 `@deepseek-ai/ds
 
 下方 shell 示例按 POSIX/Linux 编写，不构成跨平台认证。历史证据及限制见 [TESTING.md](TESTING.md) 和 [CHANGELOG.md](CHANGELOG.md)；本次文档检查不等于重新运行其中的 live 测试。
 
+### v1.1.0 的验证边界
+
+| 类别 | 结果 |
+|---|---|
+| 已执行 | 39 项离线 Node 测试、32 项 env-helper 检查、6 项原子写入检查、5 项 runner 自测、`node --check`、`git diff --check`、TGZ 构建与成员/隐私扫描、Markdown 本地链接检查 |
+| 未执行 | 真实 DSH 启动、真实凭据、live prompt / 权限切换、真实 profile 安装、macOS、原生 Windows |
+| 不变 | `META_PROTOCOL` 仍为 `1`；依赖范围未变；`status-plugin` 仍为 `0.1.0`；npm `files` 清单未扩大 |
+
 ## 安装与启动
 
 以下是**用户手动部署步骤**，会安装依赖、写 profile，启动后可能访问模型服务；不是离线测试命令。请先确认目标 DSH home、现有配置备份和依赖下载许可。`DSH_HOME` 决定目标 home；不要把示例路径原样用于真实环境。
@@ -58,12 +68,12 @@ dsh --profile qwenpaw --from-default-profile acp --dump-config >/dev/null
 ### 2. 将 bridge 加入该 profile
 
 ```sh
-# 已发布包的安装路径
-dsh plugin --profile qwenpaw add dsh-qwenpaw-bridge
-
-# 或从源码目录安装；二选一
+# 获取 v1.1.0 源码，再从本地目录安装
+git clone --branch v1.1.0 https://github.com/BillYuan01/dsh-qwenpaw-bridge.git
 dsh plugin --profile qwenpaw add /absolute/path/to/dsh-qwenpaw-bridge
 ```
+
+> **不要依赖 `dsh plugin add dsh-qwenpaw-bridge`。** 该包尚未发布到 npm registry（截至 v1.1.0 查询为 404），裸包名安装会失败。请使用固定 tag + 本地路径；自行打包时只按根 `package.json` 的 `files` 清单生成（`lib/`、`cordis.patch.yml`、README、LICENSE、CHANGELOG 与 `package.json`），不要把 `tools/`、`diagnostics/`、`test/`、`status-plugin/` 放进根包。
 
 CLI 在 `$DSH_HOME/profiles/qwenpaw` 中调用 pnpm，维护 profile 的依赖和 `dsh.profile.bundles`。缺少 pnpm 时会以 127 退出，不能当作安装成功。预期 bundle 顺序：
 
@@ -112,7 +122,7 @@ dsh --profile qwenpaw
     "qwenpaw": {
       "protocol": 1,
       "bridge": "dsh-qwenpaw-bridge",
-      "version": "0.2.1",
+      "version": "1.1.0",
       "streaming": true,
       "models": [
         {
@@ -130,6 +140,7 @@ dsh --profile qwenpaw
       "permission_presets": [{"id": "read-only", "name": "read-only"}],
       "default_permission_preset": "read-only",
       "permission_preset": "read-only",
+      "permission_preset_known": true,
       "initialized": true
     }
   }
@@ -145,7 +156,7 @@ dsh --profile qwenpaw
 
 ### 权限切换与确认
 
-服务可用时，`configOptions` 增加：
+服务可用且能读到会话实际预设时，`configOptions` 增加：
 
 ```json
 {
@@ -158,6 +169,13 @@ dsh --profile qwenpaw
 }
 ```
 
+**默认值与实际值是两件事。** `default_permission_preset` 是 profile 的进程级默认；`permission_preset` 只表示从该会话回读到的实际预设，二者不会互相顶替：
+
+- 会话不可用、`current()` 不存在或抛错、回读为空时，`permission_preset` 省略、`permission_preset_known: false`；此时不会用默认值填充，`permission_mode` select 也整项省略（`select` 必须有真实的 `currentValue`）。
+- 实际值不在 `permission_presets` 目录里（例如自定义 profile 预设）时同样省略 select，但 `permission_preset` 保留真实值，不换成默认值。
+- `initialize` 没有会话，因此只报告 `default_permission_preset`，其 `permission_preset_known` 为 `false`；它不构成任何会话的实际权限。
+- `permissionPresets: false` 时 `permission_preset_known: false` 且 `permission_preset_disabled: true`，不广告目录。
+
 优先使用标准 ACP 配置切换；以下均为请求的 method/params 片段，`example-session` 只是占位：
 
 ```json
@@ -168,8 +186,10 @@ dsh --profile qwenpaw
 
 初始权限可在 `session/new` 的 `params._meta.qwenpaw.permission_preset` 请求，也会在 resume 路径处理。注意区别：
 
+- **写入成功不等于切换成功。** `session/set_config_option` 与 `qwenpaw/permission/set` 在写入后会回读会话实际值；只有回读一致才返回成功结果。回读不可用（`permission_preset_written: true` / `permission_preset_confirmed: false`）或回读值不同（额外带 `permission_preset_actual`）都返回 `-32602`，客户端应停止执行并重新读取权限，而不是假定已生效。
+- **`permissionPresets: false` 是关闭，不是隐藏。** 该配置下标准 `permission_mode`（及 `permission_preset` / `permissionPreset` 别名）切换返回 `-32602`；`qwenpaw/permission/set`、`qwenpaw/permission/get` 返回 `-32601`。这些请求由 bridge 本地拒绝，不会转交 stock ACP 执行，服务写入调用为 0 次。关闭的只是 bridge 自己的热切换面；DSH/stock 的其他权限能力与 profile 默认权限不受本开关控制。
 - 显式热切换缺少服务、预设非法或会话不可用时，返回 `-32602`；不能把失败当作已切换，更不能自动提升权限。
-- **初始预设请求不是强制前置条件**。无法应用时，会话仍可能创建，元数据包含 `requested_permission_preset` 和 `permission_preset_fallback: true`。安全敏感客户端必须检查实际 `permission_preset` / `configOptions`，不符合要求就停止发送 prompt。
+- **初始预设请求不是强制前置条件**。无法应用时（含 `permissionPresets: false`），会话仍可能创建，元数据包含 `requested_permission_preset` 和 `permission_preset_fallback: true`。安全敏感客户端必须检查实际 `permission_preset` / `permission_preset_known` / `configOptions`，不符合要求就停止发送 prompt。
 - 实际默认预设来自 DSH profile，不保证为 `read-only`。桥接器不额外放宽 DSH 的授权机制。
 
 ### 流式与降级策略
@@ -198,6 +218,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-qwenpaw-bridge/status-plugin
 
 - 需要 Python `>=3.10`、PyYAML、Node `>=22.9`（`node:util.parseEnv`）。Linux 已验证，macOS 未测试，原生 Windows 不受支持。
 - 使用同目录临时文件、`0600`、解析验证和原子替换；拒绝文件级符号链接及部分危险值，但不提供父目录路径加固或并发写锁。已同步文件不会自动修复权限。
+- 多行 quoted 赋值（包括无关变量里的续行）或孤儿行会让整个文件判为 `unusable-structure`：写入、`--check`、`--print` 均 exit 2 且不改原文件；候选文件的所有非托管键摘要必须与原文件一致。
 - `--check`、`--print` 虽不写目标文件，仍会读取选中 home 的凭据；不能当作“无凭据访问”。实际读取/写入必须单独授权。
 - 没有安装脚本、自动启动钩子、定时任务或运行时集成。
 
@@ -211,26 +232,41 @@ dsh plugin --profile web add /absolute/path/to/dsh-qwenpaw-bridge/status-plugin
 
 ### A. 默认离线检查：无 DSH、无真实凭据
 
-在 checkout 根目录运行：
+在 checkout 根目录运行安全 runner（推荐，使用一次性 fake HOME/DSH_HOME/TMPDIR 与 `env -i` allowlist）：
 
 ```sh
-for f in lib/*.js; do node --check "$f"; done
+tools/run-safe-checks.sh
+tools/run-safe-checks.sh --list
+bash tools/tests/test-runner.sh
+```
+
+它默认跑 39 个离线 Node 测试 + `node --check`；不启动 DSH、不执行 `npm install` 或 pack lifecycle scripts、不读凭据。需要逐条命令时：
+
+```sh
+for f in lib/*.js test/*.js; do node --check "$f"; done
 node --test test/protocol.test.js
+node --test test/permission_boundaries.test.js
 git diff --check
 ```
 
-Node 测试仅覆盖包名、版本及协议常量的一致性，**不能证明**权限、流式或模型目录集成正常。打包清单可单独用 `npm pack --dry-run` 检查；这不等于执行安装、发布或模型验收。
+`protocol.test.js` 只覆盖包名、版本及协议常量的一致性；`permission_boundaries.test.js` 用假 ctx/service 覆盖“默认值不得冒充实际预设”和 `permissionPresets: false` 的写入拒绝（含别名与带/不带 `_` 的扩展方法、服务零写入）。两者都**不能证明**与真实 DSH 的权限、流式或模型目录集成正常；那需要 C/D 段单独授权的 live 验证。打包清单可单独用 `npm pack --dry-run` 检查；这不等于执行安装、发布或模型验收。
 
 ### B. Fake-only helper 测试：临时文件，不启动 DSH
 
-依赖已经具备时，按 [tools 测试说明](tools/README.md#fake-only-tests) 运行：
+依赖已经具备时，显式选择 helper 套件（32 + 6；不自动安装）：
+
+```sh
+tools/run-safe-checks.sh --with-helpers --python /path/to/venv/bin/python
+```
+
+或按 [tools 测试说明](tools/README.md#fake-only-tests) 逐条运行：
 
 ```sh
 bash tools/tests/test-env-sync.sh
 python3 tools/tests/test-atomic.py
 ```
 
-两套测试生成假值和临时 home。不要将测试目标覆盖为用户正在运行的脚本或真实 home；保留默认 checkout 目标。依赖安装仍需单独决定。
+两套测试生成假值和临时 home。不要将测试目标覆盖为用户正在运行的脚本或真实 home；保留默认 checkout 目标。依赖安装仍需单独决定。runner 在缺 Python/PyYAML 或 Node <22.9 时明确失败，不会把 skip 当通过。
 
 ### C. 隔离诊断：仍会启动 DSH，需另行确认
 

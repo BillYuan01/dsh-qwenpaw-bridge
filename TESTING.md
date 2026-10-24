@@ -11,6 +11,18 @@ The bridge's acceptance surface is the ACP wire, not the QwenPaw plugin. The
 historical s01–s06 contract suite is therefore cited as integration context, not
 as proof of the bridge's `_meta`/streaming behavior.
 
+> **2026-10-25 (v1.1.0):** this release was verified offline only — 39 Node
+> tests, 32 env-helper checks, 6 atomic-write checks, 5 runner self-tests and
+> syntax checks. Real DSH, credentials, live prompts, macOS and native Windows
+> were not re-run. The numbers below remain dated historical evidence.
+
+> **2026-10-24 addition:** the default local entry is now
+> `tools/run-safe-checks.sh` (39 offline Node tests + `node --check`), with
+> `--with-helpers` explicitly adding 32 env-helper + 6 atomic checks. It uses a
+> throwaway HOME/DSH_HOME/TMPDIR and never starts DSH, installs packages, or
+> reads credentials. The measured numbers below remain the historical record;
+> they were not re-run against a live DSH in this change.
+
 ## Environment
 
 | Item | Historical (monorepo) | Current (this repo) |

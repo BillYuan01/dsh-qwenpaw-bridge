@@ -95,6 +95,26 @@ def main() -> int:
         else:
             ok("unmanaged variable survives a rewrite")
 
+        # A candidate that would change a non-managed variable is refused even
+        # when the managed key itself round-trips.
+        other = home / "other.env"
+        other.write_text("KEEP_VAR=original\n", encoding="utf-8")
+        baseline = module.parse_with_node(other)
+        before_other = other.read_bytes()
+        try:
+            module.atomic_write(
+                other,
+                "KEEP_VAR=changed\nDEEPSEEK_API_KEY=" + FAKE + "\n",
+                {"DEEPSEEK_API_KEY": FAKE},
+                baseline=baseline,
+            )
+            bad("unrelated digest change must be refused", "no exception")
+        except SystemExit as error:
+            if other.read_bytes() == before_other:
+                ok(f"unrelated digest change refused (exit {error.code}), old file intact")
+            else:
+                bad("unrelated digest change refused", "target changed")
+
     print(f"\n{passes} passed, {failures} failed")
     return 0 if failures == 0 else 1
 

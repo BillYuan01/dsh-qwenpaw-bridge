@@ -5,7 +5,32 @@ the launch environment before credential-service resolution is available. It
 is not a diagnosis of ACP discovery timing and is not required by the bridge.
 **No bridge runtime change:** these helpers are available from a GitHub source
 checkout only. The root package's `files` list excludes `tools/` (and
-`diagnostics/`); this addition needs no version bump, tag, or npm publish.
+`diagnostics/`); the helper addition itself required no version bump, tag, or
+npm publish. The root package version is now `1.1.0`; this helper still ships
+only in a source checkout and is not part of the npm file list.
+
+## Safe local checks
+
+From the checkout root:
+
+```sh
+tools/run-safe-checks.sh
+tools/run-safe-checks.sh --with-helpers --python /path/to/venv/bin/python
+tools/run-safe-checks.sh --list
+bash tools/tests/test-runner.sh
+```
+
+Default runs the 39 offline Node tests (`protocol` + `permission_boundaries`)
+and `node --check` for `lib/`/`test/`. It never starts DSH, never runs
+`npm install` or pack lifecycle scripts, and never reads credentials.
+
+`--with-helpers` explicitly adds the 32 env-helper checks and 6 atomic-write
+checks (38). It requires an existing Python >=3.10 with PyYAML and Node >=22.9;
+missing prerequisites are a hard error and nothing is installed. Both modes use
+a throwaway `HOME`, `DSH_HOME` and `TMPDIR`, with an `env -i` allowlist.
+`tools/tests/test-runner.sh` proves a whitelisted fake test runs while a
+sentinel live-looking file is not executed.
+
 
 ## Requirements and portability
 
@@ -39,18 +64,29 @@ lock, secret manager, or defense against concurrent directory replacement.
   leaves the old target intact. An already in-sync file is not rewritten or
   permission-repaired; verify its permissions independently.
 - Managed duplicates are collapsed; unrelated lines, comments, and order are
-  retained, but line endings/final newline are normalized on rewrite. This is
-  not a general dotenv editor (for example, `export KEY=...` is not rewritten
-  as a managed assignment).
+  retained, but line endings/final newline are normalized on rewrite. `export
+  KEY=...` is recognized and rewritten as a managed assignment (the `export`
+  prefix is dropped on that line). This is still not a general dotenv editor.
+- **Structural refusal:** a multiline quoted value (a `'`, `"` or backtick
+  opener with no same-quote closer on its physical line) or an orphan
+  non-comment line without `=` makes the whole file non-rewritable. This
+  applies to unrelated variables too: their continuation lines can look
+  exactly like a managed assignment. In that state the write, `--check` and
+  `--print` all exit `2`, print `unusable-structure`, and leave the old file
+  byte- and mode-identical. Fix the multiline value by hand.
 - Empty values, leading/trailing whitespace, control characters, double quotes,
   and backslashes are conservatively rejected rather than relying on escaping.
   `$` stays literal; `#` and internal whitespace are quoted. Node parses the
-  candidate and its digests are checked before replacement.
+  candidate and its digests are checked before replacement, and every
+  non-managed key must keep the same digest as the original file; a rewrite
+  that would change an unrelated variable is refused.
 - `--check` **reads real local values internally** when pointed at a real home,
   but prints only key names/status, never values or digests. Exit codes: `0`
-  in sync, `1` drift/missing key, `2` invalid input/dependency/error.
+  in sync, `1` drift/missing key, `2` invalid input/dependency/error or
+  `unusable-structure`.
   `--print` is a read-only status report, returning `0` for reported drift;
-  errors still exit `2`. With both flags, check exit semantics apply.
+  errors (including `unusable-structure`) exit `2`. With both flags, check exit
+  semantics apply.
 - Default mode writes only when drift is found. Status/error messages can
   include local paths; do not publish raw output without review.
 
@@ -84,8 +120,8 @@ No live-home command above was used for the publication checks.
 From the checkout root:
 
 ```sh
-bash tools/tests/test-env-sync.sh       # 20 behavior checks
-python3 tools/tests/test-atomic.py      # 5 atomic-write checks
+bash tools/tests/test-env-sync.sh       # 32 behavior checks
+python3 tools/tests/test-atomic.py      # 6 atomic-write checks
 ```
 
 Both default to the repository's `tools/dsh-env-sync.py`, never a user's active

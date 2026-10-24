@@ -206,5 +206,108 @@ err=$(run 2>&1); rc=$?
   && ok "directory target refused, contents untouched" \
   || bad "directory target refused" "rc=$rc keep=$([ -f "$H/.env/keep" ] && echo y || echo n)"
 
+# ---------------------------------------------------------------------------
+# R10: logical dotenv structure. A multiline quoted assignment (managed or
+# not) and orphan continuation lines are not safely rewritable: every entry
+# point must refuse, report the structure state without values, and leave the
+# old file byte- and mode-identical.
+
+unsafe_setup() {  # newhome + the given .env body; fills $before/$mode
+  newhome
+  printf '%b' "$1" > "$H/.env"
+  chmod 640 "$H/.env"
+  before=$(sha256sum "$H/.env" | cut -d' ' -f1)
+  mode=$(stat -c '%a' "$H/.env")
+}
+unsafe_intact() {  # <label> <rc> <output>
+  local label=$1 rc=$2 out=$3
+  local after now left
+  after=$(sha256sum "$H/.env" | cut -d' ' -f1)
+  now=$(stat -c '%a' "$H/.env")
+  left=$(find "$H" -maxdepth 1 -name '.env.tmp-*' | wc -l)
+  [ "$rc" -eq 2 ] && [ "$before" = "$after" ] && [ "$mode" = "$now" ] && [ "$left" -eq 0 ] \
+    && echo "$out" | grep -qi 'unusable-structure' \
+    && ok "$label" \
+    || bad "$label" "rc=$rc same=$([ "$before" = "$after" ] && echo y || echo n) mode=$mode/$now left=$left"
+}
+no_secret() {  # <label> <output>
+  [ "$2" = "${2/"$FAKE"/}" ] && [ "$2" = "${2/"$FAKE2"/}" ] \
+    && ok "$1" || bad "$1" "secret leaked"
+}
+
+# 21 managed multiline quoted value: write refused, file untouched
+unsafe_setup 'DEEPSEEK_API_KEY="old-value\ncontinued-part"\nOTHER_VAR=keep-me\n'
+out=$(run 2>&1); rc=$?
+unsafe_intact "multiline managed value: write refused, bytes+mode unchanged" "$rc" "$out"
+no_secret "multiline refusal output carries no values" "$out"
+
+# 22 --check reports the unsafe structure as an error, not a clean sync
+out=$(run --check 2>&1); rc=$?
+unsafe_intact "multiline managed value: --check exits 2" "$rc" "$out"
+
+# 23 --print also refuses to report a value-level status as success
+out=$(run --print 2>&1); rc=$?
+unsafe_intact "multiline managed value: --print exits 2" "$rc" "$out"
+
+# 24 an unrelated multiline value hiding a managed-looking line is refused
+unsafe_setup 'OTHER_VAR="keep\nDEEPSEEK_API_KEY=hidden-in-value\nend"\n'
+out=$(run 2>&1); rc=$?
+unsafe_intact "unrelated multiline value hides managed key: write refused" "$rc" "$out"
+
+# 25 an unterminated quoted value is unsafe even though Node ignores the tail
+unsafe_setup 'DEEPSEEK_API_KEY="unterminated\nOTHER_VAR=keep-me\n'
+out=$(run 2>&1); rc=$?
+unsafe_intact "unterminated quote: write refused" "$rc" "$out"
+
+# 26 an orphan continuation line (no '=') is unsafe
+unsafe_setup 'DEEPSEEK_API_KEY=old-value\ncontinued"\nOTHER_VAR=keep-me\n'
+out=$(run 2>&1); rc=$?
+unsafe_intact "orphan continuation line: write refused" "$rc" "$out"
+out=$(run --check 2>&1); rc=$?
+unsafe_intact "orphan continuation line: --check exits 2" "$rc" "$out"
+
+# 27 CRLF + export prefix: the managed logical entry is found and replaced once
+newhome
+printf 'export DEEPSEEK_API_KEY=old-value\r\nOTHER_VAR=keep-me\r\n' > "$H/.env"
+grep -q '^OTHER_VAR=keep-me' "$H/.env" || bad "fixture CRLF/export written" "missing"
+run >/dev/null 2>&1; rc=$?
+got=$(parsed "$H/.env" DEEPSEEK_API_KEY); other=$(parsed "$H/.env" OTHER_VAR)
+count=$(grep -c '^DEEPSEEK_API_KEY=' "$H/.env")
+mode=$(stat -c '%a' "$H/.env")
+[ "$rc" -eq 0 ] && [ "$got" = "$FAKE" ] && [ "$other" = "keep-me" ] \
+  && [ "$count" -eq 1 ] && [ "$mode" = "600" ] \
+  && ok "CRLF/export managed entry replaced once through the parser" \
+  || bad "CRLF/export managed entry" "rc=$rc got=$([ "$got" = "$FAKE" ] && echo ok || echo bad) other=$other count=$count mode=$mode"
+
+# 28 single-line quoted values of all three quote styles and comments survive
+newhome
+printf "# leading comment\nA='one two'\nB=\"three four\"\nC=\`five six\`\n" > "$H/.env"
+run >/dev/null 2>&1; rc=$?
+a=$(parsed "$H/.env" A); b=$(parsed "$H/.env" B); c=$(parsed "$H/.env" C)
+head -1 "$H/.env" | grep -q '^# leading comment$' && [ "$a" = "one two" ] \
+  && [ "$b" = "three four" ] && [ "$c" = "five six" ] && [ "$rc" -eq 0 ] \
+  && ok "single/double/backtick quoted values and comments survive" \
+  || bad "quoted values survive" "rc=$rc a=$a b=$b c=$c"
+
+# 29 duplicate managed entries collapse to one logical assignment, last-wins input
+newhome
+printf 'DEEPSEEK_API_KEY=first\nOTHER_VAR=keep-me\nDEEPSEEK_API_KEY=second\n' > "$H/.env"
+run >/dev/null 2>&1; rc=$?
+got=$(parsed "$H/.env" DEEPSEEK_API_KEY); count=$(grep -c '^DEEPSEEK_API_KEY=' "$H/.env")
+[ "$rc" -eq 0 ] && [ "$got" = "$FAKE" ] && [ "$count" -eq 1 ] \
+  && ok "duplicate managed entries collapse to one assignment" \
+  || bad "duplicate managed entries collapse" "rc=$rc got=$([ "$got" = "$FAKE" ] && echo ok || echo bad) count=$count"
+
+# 30 unsafe refusal must not create or modify anything next to the target
+newhome; before_listing=$(find "$H" -maxdepth 1 -printf '%f\n' | sort)
+printf 'DEEPSEEK_API_KEY="a\nb"\n' > "$H/.env"
+before=$(sha256sum "$H/.env" | cut -d' ' -f1)
+run >/dev/null 2>&1; rc=$?
+after_listing=$(find "$H" -maxdepth 1 -printf '%f\n' | sort)
+after=$(sha256sum "$H/.env" | cut -d' ' -f1)
+[ "$rc" -eq 2 ] && [ "$before" = "$after" ] && [ "$before_listing" = "$after_listing" ] \
+  && ok "unsafe refusal leaves the directory and target unchanged" \
+  || bad "unsafe refusal leaves directory unchanged" "rc=$rc listing_same=$([ "$before_listing" = "$after_listing" ] && echo y || echo n)"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

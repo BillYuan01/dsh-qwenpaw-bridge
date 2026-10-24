@@ -60,6 +60,13 @@ IN_SYNC = "in-sync"
 MISSING_IN_ENV = "missing-in-env"
 STALE = "stale"
 MISSING_IN_STORE = "missing-in-store"
+UNUSABLE_STRUCTURE = "unusable-structure"
+
+#: Quote characters Node's ``util.parseEnv`` accepts at the start of a value.
+#: A value that opens one of these and does not close it on the same physical
+#: line is a multiline quoted assignment: legal dotenv, but not something this
+#: helper rewrites line by line. Such files are refused as a whole.
+_VALUE_QUOTES = "\"'`"
 
 # Read and digest the file with the parser DSH itself uses: Node's
 # `process.loadEnvFile` is `util.parseEnv`, so the digest comparison below is a
@@ -138,6 +145,69 @@ def parse_with_node(path: pathlib.Path) -> dict[str, str]:
         fail(f"{NODE} returned an unreadable digest map; nothing written")
 
 
+def assignment_key(line: str) -> str | None:
+    """Return the logical dotenv key on *line*, or ``None`` for non-assignments.
+
+    Mirrors the subset of Node ``util.parseEnv`` that this helper understands:
+    optional indentation, optional ``export`` prefix, the key up to the first
+    ``=`` (trimmed), and nothing else. Blank/comment lines and lines without an
+    ``=`` are not assignments.
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    eq = line.find("=")
+    if eq < 0:
+        return None
+    key = line[:eq].strip()
+    if key.startswith("export") and (len(key) == 6 or key[6].isspace()):
+        key = key[6:].strip()
+    return key or None
+
+
+def scan_structure(text: str) -> str | None:
+    """Classify the whole file as rewritable, or return an unsafe reason.
+
+    Supported (rewritable) shape, verified against Node ``util.parseEnv`` with
+    synthetic input:
+
+    * blank lines and ``#`` comments;
+    * one logical assignment per physical line, with optional indentation and
+      an optional ``export`` prefix;
+    * a value that is unquoted, or quoted with a single quote, a double quote
+      or a backtick and closed on the same physical line (a trailing ``#``
+      comment is fine);
+    * CRLF is accepted and normalized on rewrite (documented behaviour).
+
+    Everything else is refused as a whole instead of being guessed at:
+
+    * a multiline quoted value (the opener has no same-quote closer on its
+      physical line), even for an unrelated variable — its continuation lines
+      may look exactly like a managed assignment;
+    * an orphan non-comment line without ``=`` (usually the tail of a multiline
+      value that was split by an earlier writer).
+
+    The scanner never consumes secrets, never prints values and never decides
+    per-key: either the file is structurally rewritable, or nothing is written.
+    """
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        eq = line.find("=")
+        if eq < 0:
+            return "orphan-line"
+        value = line[eq + 1 :]
+        pos = 0
+        while pos < len(value) and value[pos] in " \t":
+            pos += 1
+        if pos < len(value) and value[pos] in _VALUE_QUOTES:
+            quote = value[pos]
+            if quote not in value[pos + 1 :]:
+                return "multiline-quoted"
+    return None
+
+
 def encode_line(name: str, value: str) -> str:
     """One dotenv line for *value*; refuses what the loader cannot represent."""
     if value == "":
@@ -160,12 +230,18 @@ def encode_line(name: str, value: str) -> str:
 
 
 def render(existing: str, updates: dict[str, str]) -> str:
-    """Rewrite managed lines, preserving other lines and normalizing line endings."""
+    """Rewrite managed logical entries, preserving other lines byte-for-byte.
+
+    The caller must have validated the file with :func:`scan_structure`; this
+    function only looks at physical lines that the scanner classified as a
+    single-line assignment, so a managed-looking line inside a multiline value
+    can never be selected.
+    """
     lines = existing.splitlines() if existing else []
     kept: list[str] = []
     seen: set[str] = set()
     for line in lines:
-        name = line.partition("=")[0].strip()
+        name = assignment_key(line)
         if name in updates:
             if name in seen:  # collapse duplicates instead of emitting both
                 continue
@@ -179,8 +255,19 @@ def render(existing: str, updates: dict[str, str]) -> str:
     return "\n".join(kept) + "\n"
 
 
-def atomic_write(path: pathlib.Path, text: str, expect: dict[str, str]) -> None:
-    """Write *text* atomically after proving the loader reads back exactly *expect*."""
+def atomic_write(
+    path: pathlib.Path,
+    text: str,
+    expect: dict[str, str],
+    baseline: dict[str, str] | None = None,
+) -> None:
+    """Write *text* atomically after proving the loader reads back exactly *expect*.
+
+    When *baseline* is provided (the digest map of the file being replaced),
+    every key outside *expect* must keep the same digest. That is what proves a
+    rewrite did not change the meaning of an unrelated variable — comparing
+    only the managed keys would hide a corrupted neighbour.
+    """
     if path.exists() or path.is_symlink():
         regular_file(path, "target .env")
     fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".env.tmp-")
@@ -198,6 +285,13 @@ def atomic_write(path: pathlib.Path, text: str, expect: dict[str, str]) -> None:
                 fail(f"verification failed: {name} is not readable back from the encoded line; nothing written")
             if got != digest(value):
                 fail(f"verification failed: {name} would not round-trip through DSH's dotenv parser; nothing written")
+        if baseline is not None:
+            for name in sorted(set(baseline) | set(parsed)):
+                if name in expect:
+                    continue
+                if baseline.get(name) != parsed.get(name):
+                    # Key names only; values and digests never leave memory.
+                    fail(f"verification failed: unrelated dotenv key {name} would change; nothing written")
         os.replace(tmp, path)
         os.chmod(path, 0o600)
     except BaseException:
@@ -219,6 +313,28 @@ def main() -> int:
 
     store = read_store()
     target_exists = regular_file(ENV_FILE, "target .env")
+    existing = ""
+    if target_exists:
+        try:
+            existing = ENV_FILE.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            fail("target .env is unreadable as UTF-8; nothing written")
+    structure = scan_structure(existing)
+    if structure is not None:
+        # A multiline quoted value or an orphan line means the physical lines
+        # no longer map one-to-one to logical dotenv entries. Both --check and
+        # --print must say so: comparing only the managed digest is what made
+        # the old check report success on a structurally broken file.
+        if args.show or args.check:
+            for key in KEYS:
+                print(f"{key}: {UNUSABLE_STRUCTURE}")
+            print(f"structure: {UNUSABLE_STRUCTURE} ({structure}); no changes")
+            return 2
+        fail(
+            f"target .env has {UNUSABLE_STRUCTURE} structure ({structure}); "
+            "refusing to rewrite it (fix the multiline value by hand); nothing written"
+        )
+
     current = parse_with_node(ENV_FILE) if target_exists else {}
 
     status: dict[str, str] = {}
@@ -253,8 +369,7 @@ def main() -> int:
         print(f"dsh-env-sync: {ENV_FILE} already in sync")
         return 0
 
-    existing = ENV_FILE.read_text(encoding="utf-8") if target_exists else ""
-    atomic_write(ENV_FILE, render(existing, updates), updates)
+    atomic_write(ENV_FILE, render(existing, updates), updates, baseline=current)
     print(f"dsh-env-sync: wrote {', '.join(updates)} -> {ENV_FILE} (mode 600)")
     return 0
 

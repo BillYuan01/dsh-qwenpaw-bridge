@@ -6,7 +6,7 @@
 
 ## 1. 仓库边界与事实来源
 
-- 根 npm 包是 `dsh-qwenpaw-bridge`，当前版本 `0.2.1`；元数据协议为 `1`。以 [package.json](package.json)、[lib/protocol.js](lib/protocol.js) 为准，不复制旧版本示例。
+- 根 npm 包是 `dsh-qwenpaw-bridge`，当前版本 `1.1.0`；元数据协议为 `1`。以 [package.json](package.json)、[lib/protocol.js](lib/protocol.js) 为准，不复制旧版本示例。v1.1.0 与 QwenPaw 端 `qwenpaw-dsh` v1.1.0 是配套发布；版号相同不表示 DSH 核心变成 1.1.0（范围仍 `>=0.2.0-rc.2 <0.3.0-0`），也不承诺以后同步。独立 `status-plugin` 仍是 `0.1.0`。
 - 这是 **DSH 端 bundle**，不是 QwenPaw 端 Python 插件。另一端在 [qwenpaw-dsh](https://github.com/BillYuan01/qwenpaw-dsh)，不要越界修改另一个 checkout，也不要用另一端的测试冒充这里的验收。
 - [README.md](README.md) 是用户入口；[TESTING.md](TESTING.md) 是有日期和环境限制的历史证据；[CHANGELOG.md](CHANGELOG.md) 是版本记录。旧测量不能证明当前机器、当前版本或所有平台都通过。
 - 根包的 npm `files` 仅含 `lib/`、`cordis.patch.yml`、README、LICENSE、CHANGELOG；npm 还自动包含根 `package.json`。`tools/`、`diagnostics/`、`test/`、`status-plugin/` 和本指南不在根包清单中。
@@ -53,6 +53,9 @@ stdout 只能承载协议帧，不得加入日志、调试输出或秘密；使�
 **不能用“所有可选能力失败都降级”概括安全行为。**
 
 - 权限切换要求服务和目标会话有效，标准 `permission_mode` 还验证目录中的预设值。显式切换失败返回 `-32602`，不得伪造成功、自动放宽或静默切到更强预设。
+- **`default` 与 actual 分离**：`default_permission_preset` 是 profile 默认；`permission_preset` / `currentValue` 只能来自会话回读，未知时省略并置 `permission_preset_known: false`。禁止用 `?? catalog.default` 之类回退填补会话事实；未知时宁可不广告 `permission_mode` select。
+- **写入后必须回读核实**：`service.set()` 返回不抛异常不代表已生效。回读一致才算成功；回读不可用或值不同都要返回错误并提示客户端停止，不得返回“已确认”结果。
+- **`permissionPresets: false` 是关闭而非隐藏**：标准 `permission_mode` 与别名返回 `-32602`，`qwenpaw/permission/{set,get}` 返回 `-32601`，全部在 bridge 本地拒绝、不透传给 stock，`service.set` 零调用。该开关只覆盖 bridge 自有热切换面，不代表能控制 stock/DSH 的其他权限能力或 profile 默认权限。
 - 初始 `_meta.qwenpaw.permission_preset` 是请求而非强制约束：应用失败时，现有实现仍可能创建会话，并标记 `requested_permission_preset` / `permission_preset_fallback: true`。不要把它描述为服务端严格拒绝会话。安全客户端应核验实际预设，不满足要求就不发 prompt。
 - 默认权限由 DSH profile 决定，不承诺自动是 read-only。新增测试/示例优先使用最小权限；不得用 full-access 或自动 allow 掩盖权限故障。
 - 模型目录查询失败可跳过 provider/可选字段或返回空数组；关闭目录时省略字段。无 live 事件、订阅失败或关闭 live 时，回退 stock committed 投影。
@@ -64,9 +67,10 @@ stdout 只能承载协议帧，不得加入日志、调试输出或秘密；使�
 | --- | --- | --- |
 | README/指南/本地链接 | 阅读涉及的源文件与 package，校验 Markdown 本地路径，`git diff --check`；可跑 protocol 单测 | 不证明真实安装、流式、权限或跨平台通过 |
 | 协议常量、包名/版本 | `node --test test/protocol.test.js` | 现有四项测试只检查名称、版本与协议词汇 |
-| JS 改动 | `for f in lib/*.js; do node --check "$f"; done`，再选相关单测/隔离测试 | 语法通过不等于 runtime 集成通过 |
+| JS 改动 | `for f in lib/*.js; do node --check "$f"; done`，再选相关单测/隔离测试（权限面：`node --test test/permission_boundaries.test.js`） | 语法通过不等于 runtime 集成通过；fake ctx 测试不等于 DSH 服务行为 |
 | 发布内容清单审查 | 经任务允许后 `npm pack --dry-run`，对照 `package.json.files` | 不安装，不等于发布；不能声称 source helpers 已进入 npm |
-| env helper 行为 | 依赖齐备时 `bash tools/tests/test-env-sync.sh`、`python3 tools/tests/test-atomic.py` | fake-only，临时文件；不证明真实 credential-service 或模型发现正常 |
+| env helper 行为 | 依赖齐备时 `bash tools/tests/test-env-sync.sh`、`python3 tools/tests/test-atomic.py`；或显式 `tools/run-safe-checks.sh --with-helpers` | fake-only，临时文件；不证明真实 credential-service 或模型发现正常 |
+| runner 白名单/隔离 | `tools/run-safe-checks.sh`、`bash tools/tests/test-runner.sh` | 证明脚本只跑固定离线入口、不执行 live sentinel；不证明真实 DSH 集成 |
 | 模型目录/凭据服务采样 | 先读 [diagnostics/README.md](diagnostics/README.md)，仅已配置的隔离 fake profile；启动前单独确认 | 不发 prompt 仍可能有 DSH 启动副作用；时间差不证明因果 |
 | live / committed / 权限集成 | 单独授权后使用 [test/probe.py](test/probe.py) 与 [TESTING.md](TESTING.md) | 不能默认运行，不能替代另一个仓库的 QwenPaw 端测试 |
 | status card | 先静态检查 [status-plugin/](status-plugin/README.md)；启动 web/访问 API 另行确认 | 卡片只表示启动采样，不是持续监控或真实模型验收 |
@@ -90,7 +94,7 @@ git diff --check
 
 ## 5. 可选组件与未解决问题
 
-- [tools/](tools/README.md)：源码限定、手动 opt-in 的 env helper，不是 bridge runtime。读取 `.credentials.yaml` 后派生 `.env`，会多一份明文副本；`--check` / `--print` 也读凭据，真实 home 必须另行授权。
+- [tools/](tools/README.md)：源码限定、手动 opt-in 的 env helper，不是 bridge runtime。读取 `.credentials.yaml` 后派生 `.env`，会多一份明文副本；`--check` / `--print` 也读凭据，真实 home 必须另行授权。**多行 quoted 赋值/孤儿行是整文件拒绝**（write/`--check`/`--print` exit 2，不改原文件）；写入前比较候选与原文件的全部非托管键摘要。保持这些保守语义，不新增通用 dotenv 编辑器。
 - helper 采用 `0600` 临时文件、验证和原子替换，拒绝文件级符号链接；它不是并发锁、秘密管理器或父目录安全方案。已同步目标不自动修复权限。保持文档的这些限制，不用“原子写入”宣称整体绝对安全。
 - helper 要求 Python >=3.10 + PyYAML、Node >=22.9。Linux 已验证，macOS 未测试，原生 Windows 不受支持；不能把该限制套用到根 bridge。bridge 的 macOS/Windows 状态是未验证，而非已判定不能运行。
 - [diagnostics/](diagnostics/README.md)：只是假值采样样例，不是安装器、live credential test 或已证明的修复。**credential-service 与模型发现问题仍未解决**，不声称是注册时机、缓存或凭据加载顺序导致，也不声称 helper 已修复根因。
@@ -108,7 +112,9 @@ git diff --check
 
 1. 开工先看 `git status --short`、现有文档和涉及源码，确定归属范围；不要覆盖未读过、需保留的文件。
 2. 只改获授权内容。全篇重写可以完整替换；局部调整使用精准编辑。
-3. 纯文档或 source-only helper 说明更新**不要求版本 bump**。不要为文档改写修改 `package.json`、`BRIDGE_VERSION`、代码或依赖。示例应符合当前 package version / protocol。
-4. 仅在另行授权的版本发布任务中同步包版本与 `BRIDGE_VERSION`；只有破坏性 wire shape 改动才考虑 bump `META_PROTOCOL`，并审查客户端兼容性。
-5. `git commit`、push、tag、npm publish、依赖安装、profile 修改、凭据访问、进程/服务重启及模型调用分别需要相应授权；“更新 README”不包含这些动作。
-6. 完成前核对精确 diff 和本地链接，跑任务所需的最低风险检查。交付用通俗语言说明“改了什么、结果如何”，列出修改文件、实际检查及未运行的高风险测试，不虚构验证。
+3. 纯文档或 source-only helper 说明更新**不要求版本 bump**。不要为普通文档改写修改 `package.json`、`BRIDGE_VERSION`、代码或依赖。示例应符合当前 package version / protocol。
+4. 仅在另行授权的版本发布任务中同步包版本与 `BRIDGE_VERSION`；只有破坏性 wire shape 改动才考虑 bump `META_PROTOCOL`，并审查客户端兼容性。`status-plugin` 是独立包，是否升版单独决定，不能顺手跟随根包。
+5. **发布顺序**：先更新 README/CHANGELOG，再 bump `package.json` 与 `BRIDGE_VERSION`，最后用 `npm pack --ignore-scripts`（或等价的 `files` 白名单 tar）从最终源码生成 TGZ；产物名、tag 名与清单版本必须一致（本仓库为 `v1.1.0` / `1.1.0`）。构建后核对成员清单、跑离线 runner、记录 SHA256；不要把 TGZ、构建日志、私有验收报告或本机绝对路径提交进仓库。
+6. **授权不是常设的**：某次发布获得批准，不等于以后任何 push/tag/npm publish/GitHub Release 都被自动授权；每次公开动作仍需针对目标与版本单独确认。
+7. `git commit`、push、tag、npm publish、依赖安装、profile 修改、凭据访问、进程/服务重启及模型调用分别需要相应授权；“更新 README”不包含这些动作。
+8. 完成前核对精确 diff 和本地链接，跑任务所需的最低风险检查。交付用通俗语言说明“改了什么、结果如何”，列出修改文件、实际检查及未运行的高风险测试，不虚构验证。

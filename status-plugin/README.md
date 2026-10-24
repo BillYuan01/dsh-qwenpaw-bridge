@@ -1,5 +1,8 @@
 # dsh-qwenpaw-bridge-status
 
+> Version **0.1.0**, maintained independently of the root bridge package
+> (`dsh-qwenpaw-bridge` 1.1.0). The paired 1.1.0 release does not bump this card.
+
 A **host-only plugin for the DeepSeek Harness (`dsh`) web UI**. It adds a
 **QwenPaw 桥接状态** card under **插件 → 已安装** and checks whether QwenPaw's
 `dsh` backend is reachable when the web profile boots.
