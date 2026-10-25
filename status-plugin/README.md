@@ -4,13 +4,14 @@
 > (`dsh-qwenpaw-bridge` 1.1.0). The paired 1.1.0 release does not bump this card.
 
 A **host-only plugin for the DeepSeek Harness (`dsh`) web UI**. It adds a
-**QwenPaw 桥接状态** card under **插件 → 已安装** and checks whether QwenPaw's
+**QwenPaw bridge status** card (UI label: "QwenPaw 桥接状态") under
+**Plugins → Installed** (UI labels: "插件" → "已安装") and checks whether QwenPaw's
 `dsh` backend is reachable when the web profile boots.
 
 | Indicator | Meaning |
 |---|---|
-| Green dot + 运行中 | QwenPaw is reachable and the `dsh` backend is available |
-| Red + 失败 | QwenPaw is down, or the `dsh` backend is unavailable; open the card for the error |
+| Green dot + Running ("运行中") | QwenPaw is reachable and the `dsh` backend is available |
+| Red + Failed ("失败") | QwenPaw is down, or the `dsh` backend is unavailable; open the card for the error |
 
 ## Why this exists
 
@@ -30,8 +31,8 @@ dsh plugin --profile web add dsh-qwenpaw-bridge-status
 ```
 
 Restart `dsh web` (or the `dsh-web.service` unit) after installing; the `web`
-profile has no HMR by default. Then open **插件**, scroll to **已安装**, and open
-**QwenPaw 桥接状态**.
+profile has no HMR by default. Then open **Plugins** ("插件"), scroll to
+**Installed** ("已安装"), and open **QwenPaw bridge status** ("QwenPaw 桥接状态").
 
 ## Behavior
 

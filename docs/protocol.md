@@ -1,13 +1,15 @@
-# ACP 扩展协议
+# ACP extension protocol
 
-本说明对应 bridge 1.1.0、`_meta.qwenpaw.protocol = 1`。
-传输仍是 stdio 上的 NDJSON / JSON-RPC ACP，底层复用官方 dsh-acp。
-不识别扩展的客户端可以忽略附加元数据，继续使用标准 ACP。
+This document describes bridge 1.1.0 and `_meta.qwenpaw.protocol = 1`.
+The transport remains NDJSON / JSON-RPC ACP over stdio, using official dsh-acp.
+Clients that do not understand the extensions can ignore the added metadata
+and continue using standard ACP.
 
-## 元数据与模型目录
+## Metadata and model catalog
 
-initialize、session/new、session/resume 响应在 `result._meta.qwenpaw` 中附加信息。
-下面只是 initialize 的示意片段，不是完整 ACP 响应；模型和 provider 均为占位值：
+initialize, session/new, and session/resume responses add information under
+`result._meta.qwenpaw`. This illustrative initialize fragment is not a complete
+ACP response; its model and provider values are placeholders:
 
 ```json
 {
@@ -40,37 +42,47 @@ initialize、session/new、session/resume 响应在 `result._meta.qwenpaw` 中�
 }
 ```
 
-**initialize 没有会话，不含 `permission_preset` actual。**
-这里的 read-only 仅为示例 profile 默认值，不能证明后续会话权限。
-`initialized` 只在 initialize 响应中标记；new/resume 的当前模型和权限按会话读取。
+**initialize has no session and reports no actual `permission_preset`.**
+The read-only default above is just an example profile value, not evidence of
+later session permissions. `initialized` appears only in initialize responses;
+new/resume read the current model and permissions for the session.
 
-模型字段约定：
+Model field conventions:
 
-- 身份由 provider/model 联合确定，不能只按 model ID 跨 provider 匹配。
-- `selection_value` 为 `[provider, model]` 的 JSON 字符串。
-- `reasoning_efforts` 始终为数组，详情不可用时可为空。
-- 可选字段包括 description、context_window、max_tokens、input_modalities、default_reasoning_effort。
-- `current_model` 可附带 reasoning_effort；`default` 标记匹配当前选择的目录项。
-- 仅当当前路由在目录中且身份唯一时，才应预期恰好一个 default。
-- 模型数取决于部署，目录可以为空；`models: false` 时省略 models 字段。
-- 目录按连接缓存，收到 `llm/adapters-updated` 后失效。
-- 查询失败可跳过失败 provider、保留缺少可选详情的模型或返回空目录；不保证模型可调用。
+- Identity is the provider/model pair. Do not match model IDs across providers
+  without checking the provider.
+- `selection_value` is `[provider, model]` encoded as a JSON string.
+- `reasoning_efforts` is always an array; it may be empty when details are
+  unavailable.
+- Optional fields include description, context_window, max_tokens,
+  input_modalities, and default_reasoning_effort.
+- `current_model` may include reasoning_effort. `default` marks catalog entries
+  matching the current selection.
+- Expect exactly one default only when the current route is present and its
+  identity is unique in the catalog.
+- Model counts depend on deployment; the catalog may be empty. `models: false`
+  omits the models field.
+- The catalog is cached per connection and invalidated by `llm/adapters-updated`.
+- Query failure may skip a failed provider, retain models without optional
+  details, or return an empty catalog. None of these guarantees model usability.
 
-## 权限状态
+## Permission state
 
-| 字段 | 含义 |
+| Field | Meaning |
 | --- | --- |
-| `default_permission_preset` | profile 的进程级默认，不是会话事实 |
-| `permission_preset` | 从该会话回读到的实际预设，仅已知时提供 |
-| `permission_preset_known` | actual 是否已知 |
-| `permission_preset_reason` | actual 未知的原因，例如 service-unavailable、session-unavailable、read-failed |
-| `requested_permission_preset` | 客户端为 new/resume 请求的初始预设 |
-| `permission_preset_confirmed` | 初始请求是否与回读一致；没有请求时省略 |
-| `permission_preset_fallback` | 初始请求未确认应用时为 true |
-| `permission_preset_disabled` | bridge 权限预设功能关闭时为 true |
+| `default_permission_preset` | Process-level profile default, not a session fact |
+| `permission_preset` | Actual preset read back from this session; present only when known |
+| `permission_preset_known` | Whether the actual value is known |
+| `permission_preset_reason` | Why the actual value is unknown, such as service-unavailable, session-unavailable, or read-failed |
+| `requested_permission_preset` | Initial preset requested by the client for new/resume |
+| `permission_preset_confirmed` | Whether read-back matches the initial request; omitted without a request |
+| `permission_preset_fallback` | True when the initial request was not confirmed as applied |
+| `permission_preset_disabled` | True when the bridge's permission-preset feature is disabled |
 
-服务不可用、current 方法缺失、会话不可用、回读为空或抛错时，不用默认值补 actual。
-只有 actual 已知且在预设目录中，才增加标准配置项：
+Never substitute the default for the actual value when the service is
+unavailable, its current method is missing, the session is unavailable, or
+read-back is empty or throws. Add the standard config option only when the
+actual value is known and present in the preset catalog:
 
 ```json
 {
@@ -83,67 +95,88 @@ initialize、session/new、session/resume 响应在 `result._meta.qwenpaw` 中�
 }
 ```
 
-实际值不在目录中时，元数据保留实际值，但省略该 select。
-read-only 是 DSH 权限预设，不是路径白名单；bridge 不定义文件可读范围。
+If the actual value is outside the catalog, retain it in metadata but omit the
+select. read-only is a DSH permission preset, not a path allowlist; the bridge
+does not define which files can be read.
 
-## 权限切换
+## Permission switching
 
-优先使用标准 ACP 配置方法。以下为 method/params 片段，session ID 是合成值：
+Prefer the standard ACP config method. This method/params fragment uses a
+synthetic session ID:
 
 ```json
 {"method":"session/set_config_option","params":{"sessionId":"example-session","configId":"permission_mode","value":"read-only"}}
 ```
 
-标准配置入口也接受 `permission_preset`、`permissionPreset` 两个 configId 别名。
-扩展方法如下；ACP SDK 自动添加前导 `_`，bridge 接受带或不带 `_` 的拼写。
+The standard entry also accepts `permission_preset` and `permissionPreset` as
+configId aliases. Extension methods are listed below. The ACP SDK adds a
+leading `_`; the bridge accepts names with or without it.
 
-| 方法 | 参数 | 结果要点 |
+| Method | Parameters | Result |
 | --- | --- | --- |
-| `qwenpaw/permission/set` | sessionId、preset | 确认后的 actual、目录及 configOptions |
-| `qwenpaw/permission/get` | sessionId | actual/known、目录及 configOptions；未知不填默认值 |
-| `qwenpaw/streaming/set` | enabled | 当前连接的 streaming 状态 |
+| `qwenpaw/permission/set` | sessionId, preset | Confirmed actual value, catalog, and configOptions |
+| `qwenpaw/permission/get` | sessionId | actual/known, catalog, and configOptions; no default substitution when unknown |
+| `qwenpaw/streaming/set` | enabled | Streaming state for the current connection |
 
-permission/set 也接受 permission_preset、permissionPreset 作为 preset 参数别名。
-未知 `qwenpaw/*` 方法返回 `-32601`。
+permission/set also accepts permission_preset and permissionPreset as preset
+parameter aliases. Unknown `qwenpaw/*` methods return `-32601`.
 
-显式切换必须满足服务、会话和预设有效，标准入口还会验证预设在目录中。
-`service.set()` 不抛异常只代表写入调用完成；**回读与请求一致才算成功**。
-不可回读或值不一致均返回 `-32602`，error.data 包含：
+An explicit switch requires a valid service, session, and preset. The standard
+entry additionally checks catalog membership. A non-throwing `service.set()`
+only completes the write call; **success requires read-back matching the
+request**. Unreadable or mismatching state returns `-32602`, with error.data:
 
-- `permission_preset_written: true`、`permission_preset_confirmed: false`；
-- 不可回读时包含 `permission_preset_reason`，不一致时包含 `permission_preset_actual`。
+- `permission_preset_written: true` and `permission_preset_confirmed: false`;
+- `permission_preset_reason` when unreadable, or `permission_preset_actual`
+  when mismatched.
 
-客户端应停止执行并重新读取权限，不得将错误当作已切换或自动提升权限。
-bridge 内的直接切换不重启进程；QwenPaw 自己切换审批等级是否重启 worker 属于另一端行为。
+Clients must stop and re-read permissions, not treat the error as a completed
+switch or automatically escalate privileges. Direct switching through the
+bridge does not restart its process. Whether QwenPaw restarts a worker when
+changing its own approval level is QwenPaw-side behavior.
 
-### 初始请求与关闭功能
+### Initial requests and disabling the feature
 
-new/resume 可在 `params._meta.qwenpaw.permission_preset` 请求初始预设。
-也接受 permissionPreset、permission_mode 及 bare `_meta` 下的对应别名。
-请求不构成强制前置条件：无法应用时仍可能创建会话，返回 requested、confirmed=false 和 fallback=true。
-安全敏感客户端必须核验 actual/known/confirmed，不符合要求就不发 prompt。
+new/resume may request an initial preset in
+`params._meta.qwenpaw.permission_preset`. permissionPreset and permission_mode
+are also accepted, as are the corresponding aliases under bare `_meta`.
+The request is not an enforced precondition: a session may still be created if
+it cannot be applied, returning the requested value, confirmed=false, and
+fallback=true. Safety-sensitive clients must verify actual/known/confirmed and
+withhold prompts when requirements are not met.
 
-`permissionPresets: false` 不是只隐藏配置项：
+`permissionPresets: false` does more than hide a config option:
 
-- 不广告目录，actual 未知，返回 disabled=true。
-- 标准 permission_mode 及别名返回 `-32602`；扩展 permission/set、permission/get 返回 `-32601`。
-- 本地拒绝这些请求，不转交 stock ACP，预设服务写入次数为零。
-- 初始请求仍可能 fallback；关闭的是 bridge 自有热切换面，不是 DSH/stock 的所有权限能力。
-- profile 默认权限保持由 DSH 管理，不能由此推断会话是 read-only。
+- No preset catalog is advertised; actual is unknown and disabled=true.
+- Standard permission_mode and its aliases return `-32602`; extension
+  permission/set and permission/get return `-32601`.
+- These requests are rejected locally, never forwarded to stock ACP, with zero
+  preset-service writes.
+- An initial request may still fall back. The switch disables the bridge's own
+  hot-switch surface, not every DSH/stock permission feature.
+- DSH still controls profile defaults. Do not infer that the session is read-only.
 
-## 流式与其他通知
+## Streaming and other notifications
 
-`agent/assistant-stream` 的 text-delta / reasoning-delta 分别投影为标准
-`agent_message_chunk` / `agent_thought_chunk`。只处理本连接拥有的会话。
-按模型 attempt 分别记录文本和推理标志，抑制对应的 committed 文本副本；
-end 后保留标志至下次 start，避免排队到达的 committed 消息重复追加。
-图像、工具、用量等其他更新不因此丢弃。
+`agent/assistant-stream` text-delta and reasoning-delta events project to
+standard `agent_message_chunk` and `agent_thought_chunk` updates, respectively.
+Only sessions owned by the current connection are processed. Separate text and
+reasoning flags for each model attempt suppress the corresponding committed
+text copies. Flags survive end until the next start so queued committed
+messages do not append duplicate text. Image, tool, usage, and other updates
+are not discarded as a result.
 
-initialize 的 `params._meta.qwenpaw.streaming: false` 可关闭当前连接 live。
-扩展 streaming/set 可改变连接状态；profile 配置 `streaming: false` 则根本不安装 live 订阅，
-之后切换连接状态也不会创建该订阅。缺少 live 事件、订阅失败或关闭 live 时保留 committed 路径。
-`streaming: true` 表示启用状态，不是收到增量的证明，也不承诺写入失败后的可靠重放。
+initialize with `params._meta.qwenpaw.streaming: false` disables live output
+for the connection. Extension streaming/set changes connection state. Profile
+configuration `streaming: false` prevents installing the live subscription
+altogether; later toggling connection state does not create that subscription.
+Missing live events, subscription failure, or disabling live preserves the
+committed path. `streaming: true` means enabled, not proof that deltas arrived,
+and does not promise reliable replay after a write failure.
 
-工具分类只为已知工具名补充 read/edit/execute/search/fetch，保留已有非 other 分类；不是授权判断。
-元数据装饰异常会转发原帧，这是可用性降级，不是权限已满足的证据。
-权限请求失败和初始 fallback 必须由客户端按 fail-closed 处理。
+Tool categorization adds read/edit/execute/search/fetch only for known tool
+names and preserves existing non-other categories. It is not authorization.
+Metadata-decoration errors forward the original frame: this is an availability
+fallback, not evidence that permission requirements were met. Catalog and
+streaming degradation may be **fail-soft**; clients must handle failed
+permission requests and initial fallback **fail-closed**.

@@ -1,35 +1,63 @@
-# 验证记录
+# Verification record
 
-记录已完成的 Linux 集成检查，不是所有版本或平台的兼容性保证。这里只保留测试范围与结论，不附机器标识、私人路径、会话日志或凭据。
+This records completed Linux integration checks, not a compatibility guarantee
+for every version or platform. Only scopes and conclusions are retained here,
+without machine identifiers, private paths, session logs, or credentials.
+These are dated records, not checks rerun by this documentation update.
 
-## 2026-10-25：桥 1.1.0 与插件 1.1.0
+## 2026-10-25: bridge 1.1.0 with qwenpaw-dsh 1.1.0
 
-环境为 Linux、QwenPaw 2.2.2.post1、DSH 0.2.1-rc.2。
+Environment: Linux, QwenPaw 2.2.2.post1, DSH 0.2.1-rc.2.
 
-| 项目 | 观察结果 |
-|---|---|
-| 文本流 | 一轮回答收到 105 个文本增量，分布在回答过程中，而非结束后一次投递 |
-| 并发 | 同一连接的两个会话各自收到完整标记，未串入另一个会话的内容 |
-| 取消 | 发出取消通知，消费端退出，随后同会话请求正常完成 |
-| 恢复 | 新适配器进程恢复旧 ACP 会话，并能回答先前的合成主题 |
+| Check | Observation |
+| --- | --- |
+| Text streaming | One answer received 105 text deltas spread across generation, not delivered in a single batch at the end |
+| Concurrency | Two sessions on the same connection each received their complete marker without content from the other session |
+| Cancellation | A cancel notification was sent, the consumer exited, and a subsequent request in the same session completed normally |
+| Resume | A new adapter process resumed an earlier ACP session and answered about the previous synthetic topic |
 
-这些测试主要通过已安装的 QwenPaw 适配器运行；另有一次通过 QwenPaw HTTP API 的简短回答测试。它们不是所有桥能力的专项验收，也不把取消通知等同于 provider 计费立即停止。
+These checks ran primarily through the installed QwenPaw adapter, with one
+additional short-answer check through the QwenPaw HTTP API. They are not
+dedicated acceptance tests for every bridge capability. Sending a cancel
+notification does not establish that provider billing stopped immediately.
+These stream/concurrency/cancel/resume observations belong to plugin 1.1.0;
+they were not a rerun of that suite with plugin 1.1.1.
 
-桥侧离线范围为 39 项 Node 测试、32 项 helper 检查、6 项原子写检查和 5 项 runner 自测。权限测试使用 fake service，验证默认值与实际值分离、写后回读、初始 fallback 和关闭开关，不替代真实权限服务测试。
+The bridge's separately recorded offline scope was 39 Node tests, 32 helper
+checks, 6 atomic-write checks, and 5 runner self-tests. Permission tests used a
+fake service to verify default/actual separation, write read-back, initial
+fallback, and feature disabling; they do not replace real permission-service
+tests. The 1.1.0 release checks were offline-only; the live observations above
+are separate integration evidence, not release-gate results.
 
-## 2026-10-25：桥 1.1.0 与插件 1.1.1
+## 2026-10-25: bridge 1.1.0 with qwenpaw-dsh 1.1.1
 
-在相同 Linux 宿主和 DSH 版本下，读取合成临时文件的真实测试通过：插件 1.1.1 的工具完成事件直接包含文件文本。桥仍为 1.1.0，没有为这次工具文本修复升级。
+On the same Linux host and DSH version, a live check read a synthetic temporary
+file successfully: the plugin 1.1.1 tool-completion event directly contained
+the file text. The bridge remained 1.1.0; it was not bumped for this tool-text
+fix.
 
-这是 QwenPaw 端映射修复的证据，不代表任意工具、文件读取白名单或所有权限策略都已验证。
+This is evidence for a QwenPaw-side mapping fix, not verification of arbitrary
+tools, a file-read allowlist, or every permission policy. It does not extend
+the earlier plugin 1.1.0 streaming/concurrency scope to plugin 1.1.1.
 
-## 尚未覆盖
+## Not yet covered
 
-- macOS、原生 Windows、WSL 专项端到端测试，以及全部兼容 DSH 版本。
-- 所有权限热切换、confirmed/fallback、关闭功能在真实 DSH 中的故障分支。
-- 所有模型提供商、推理流、committed 去重、MCP 和附件组合。
-- 对所有私人路径的强读取隔离；read-only 不是读取路径白名单。
+- Dedicated end-to-end checks for macOS, native Windows, WSL, or every supported
+  DSH version.
+- Every real-DSH failure branch for permission hot switching, confirmed/fallback,
+  and disabling the feature.
+- Every provider, reasoning stream, committed deduplication, MCP, and attachment
+  combination.
+- Strong read isolation for all private paths; read-only is not a read-path
+  allowlist.
 
-增量块数量不是性能保证，`streaming: true`、非空模型目录和状态卡成功也不能替代模型调用测试。更早的记录保留在 [TESTING.md](../TESTING.md)，每项结论只适用于其记录的环境与日期。
+Delta counts are not performance guarantees. `streaming: true`, a nonempty
+model catalog, or a healthy status card cannot replace a model-call test.
+Earlier records remain in [TESTING.md](../TESTING.md); each conclusion applies
+only to its recorded environment and date.
 
-复现前按[开发说明](development.md)选择测试入口。真实调用需要确认目标、权限、模型费用和输出位置；原始 dump／日志不应直接公开。
+Before reproducing a check, select the appropriate entry point in the
+[development guide](development.md). Real calls require confirmation of the
+target, permissions, model cost, and output location. Do not publish raw dumps
+or logs directly.
