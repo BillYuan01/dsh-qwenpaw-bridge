@@ -1,120 +1,87 @@
-# AGENTS.md — dsh-qwenpaw-bridge 协作指南
+# 贡献指南
 
-面向在本仓库工作的维护者、贡献者与 AI coding agent。目标是：先理解边界，再用最小改动交付有证据的结果；不能把“做过静态检查”写成“真实服务已验收”。用户的本轮授权与文件所有权范围优先，遇到目标或风险不清楚时先确认。
+本仓库只维护 DSH 端 bridge。先确认任务范围、阅读相关源码，再做最小修改。
+不要顺手修改 QwenPaw 端仓库、用户 profile、独立状态卡或他人的未提交文件。
 
-**English summary:** Preserve the stock ACP transport and additive protocol-1 contract. Default to offline checks and fail-closed permission handling. Keep fake-only tests separate from DSH startup and live acceptance; never access real credentials or publish without explicit authorization.
+## 入口与版本
 
-## 1. 仓库边界与事实来源
+- 用户入口：[README.md](README.md)；wire contract：[docs/protocol.md](docs/protocol.md)。
+- 开发与测试：[docs/development.md](docs/development.md)；近期集成范围：[docs/verification.md](docs/verification.md)。
+- [TESTING.md](TESTING.md) 是历史证据，不能用旧结果证明当前代码全部通过。
+- 根包 `1.1.0`，协议 `1`；兼容 QwenPaw 端 `qwenpaw-dsh 1.1.1`，版号无需同步。
+- Node >=22，DSH/dsh-acp `>=0.2.0-rc.2 <0.3.0-0`；状态卡独立为 `0.1.0`。
+- 版本事实以 [package.json](package.json) 和 [lib/protocol.js](lib/protocol.js) 为准。
 
-- 根 npm 包是 `dsh-qwenpaw-bridge`，当前版本 `1.1.0`；元数据协议为 `1`。以 [package.json](package.json)、[lib/protocol.js](lib/protocol.js) 为准，不复制旧版本示例。v1.1.0 与 QwenPaw 端 `qwenpaw-dsh` v1.1.0 是配套发布；版号相同不表示 DSH 核心变成 1.1.0（范围仍 `>=0.2.0-rc.2 <0.3.0-0`），也不承诺以后同步。独立 `status-plugin` 仍是 `0.1.0`。
-- 这是 **DSH 端 bundle**，不是 QwenPaw 端 Python 插件。另一端在 [qwenpaw-dsh](https://github.com/BillYuan01/qwenpaw-dsh)，不要越界修改另一个 checkout，也不要用另一端的测试冒充这里的验收。
-- [README.md](README.md) 是用户入口；[TESTING.md](TESTING.md) 是有日期和环境限制的历史证据；[CHANGELOG.md](CHANGELOG.md) 是版本记录。旧测量不能证明当前机器、当前版本或所有平台都通过。
-- 根包的 npm `files` 仅含 `lib/`、`cordis.patch.yml`、README、LICENSE、CHANGELOG；npm 还自动包含根 `package.json`。`tools/`、`diagnostics/`、`test/`、`status-plugin/` 和本指南不在根包清单中。
-- 使用现有本地 checkout。只修改被分配的文件；不顺便整理其他目录、生成报告或修改用户 profile。
+## 代码地图
 
-## 2. 架构与数据流
-
-```text
-ACP client (QwenPaw or another client)
-  -> stdin NDJSON -> inbound gate -> stock dsh-acp
-  <- stdout NDJSON <- outbound relay <- stock dsh-acp
-                            ^
-                 agent/assistant-stream live deltas
-```
-
-[cordis.patch.yml](cordis.patch.yml) 在 `dsh-base` / `dsh-acp-app` 后禁用 stock `acp` 行并插入 `qwenpaw-bridge`，保留 `acp-app-startup`。不修改 DSH core、不复制 ACP 实现、不加第二个 transport 行。
-
-| 模块 | 维护职责 |
+| 文件 | 职责 |
 | --- | --- |
-| [lib/index.js](lib/index.js) | 注入 stock ACP 服务与 `acpAppStartup`，创建单一 stdio writer、连接状态和路由，调用 `acp.apply`，监听 adapters 更新使目录缓存失效 |
-| [lib/inbound.js](lib/inbound.js) | 跟踪响应装饰所需的请求；消费权限配置与 `qwenpaw/*` 扩展；其余转发 |
-| [lib/outbound.js](lib/outbound.js) | 装饰 initialize/new/resume、configOptions，处理工具分类和 committed 去重；装饰失败转发原帧 |
-| [lib/stream.js](lib/stream.js) | 仅为本连接拥有的会话投影 text/reasoning deltas；按 attempt 保存去重标志，到下一次 start 才重置 |
-| [lib/catalog.js](lib/catalog.js) | 从可选 `ctx.llm` 构建目录并缓存，按会话选择标记 default |
-| [lib/presets.js](lib/presets.js) | 从 `permissionPresets` 服务读实际预设，通过 canonical `set` 写入，不凭缓存猜成功 |
-| [lib/toolkind.js](lib/toolkind.js) | 仅补充已知工具名的分类，不覆盖已有非 other 分类 |
-| [lib/protocol.js](lib/protocol.js) | `_meta` 命名、协议/包版本、方法名、配置 ID、JSON-RPC helper |
+| [lib/index.js](lib/index.js) | 插件入口、单一 stdio writer、连接状态、初始路由 |
+| [lib/inbound.js](lib/inbound.js) | 请求跟踪、权限拦截、扩展方法 |
+| [lib/outbound.js](lib/outbound.js) | 响应元数据、configOptions、通知装饰 |
+| [lib/stream.js](lib/stream.js) | live 增量投影与 committed 去重 |
+| [lib/catalog.js](lib/catalog.js) | provider/model/effort 目录及缓存 |
+| [lib/presets.js](lib/presets.js) | 权限目录、会话回读、预设写入与确认 |
+| [lib/toolkind.js](lib/toolkind.js) | 已知工具名的显示分类 |
+| [lib/protocol.js](lib/protocol.js) | 版本、协议常量、JSON-RPC helper |
+| [cordis.patch.yml](cordis.patch.yml) | 替换 stock ACP 行，保留 ACP app startup |
 
-stdout 只能承载协议帧，不得加入日志、调试输出或秘密；使用现有 logger，日志本身也必须审查。路由以完整 provider/model 为单位，缺失时尝试 `agentDefaultModel`；无可用路由时不得假装会话模型已配置。
+## 协议不变量
 
-## 3. 必须守住的协议与安全边界
+- 复用官方 dsh-acp，不修改 DSH core，不引入第二个 transport。
+- stdout 只能写 ACP NDJSON 帧；日志使用现有 logger，且不得包含秘密。
+- 扩展放在 `result._meta.qwenpaw`，保留其他 namespace 和原消息字段。
+- initialize 没有会话，不能报告会话实际权限；new/resume 按对应会话解析。
+- 模型身份为 provider/model 组合，`selection_value` 是该二元数组的 JSON 字符串。
+- 目录和 reasoning_efforts 可以为空；不硬编码数量，也不无条件要求恰好一个 default。
+- 目录按连接缓存，adapter 更新时失效；不要跨连接缓存部署凭据或会话事实。
+- live 只处理本连接拥有的会话，按 attempt 分别记录 text/reasoning 去重标志。
+- 不吞图像、工具、用量等更新；关闭 live 保留 committed 路径，不承诺传输失败重放。
+- 未知 `qwenpaw/*` 返回 `-32601`；扩展接受有/无前导 `_`，无关 ACP 帧继续透传。
 
-### 增量兼容
+## 权限不变量
 
-- 继续用标准 ACP `session/update`；附加信息置于 `result._meta.qwenpaw`，保留其他 namespace 和原消息字段。
-- `initialize`、`session/new`、`session/resume` 的元数据语义保持一致，当前模型与权限按会话解析。
-- `selection_value` 是 provider/model 数组的 JSON 字符串；不要只用 model ID 匹配跨 provider 的模型。
-- `reasoning_efforts` 是数组，详情不可用时可为空；目录可为空或被配置关闭。模型数依赖路由，不硬编码固定数。恰好一个 default 需要当前路由确实在目录中且身份唯一。
-- 未知 `qwenpaw/*` 返回 `-32601`；扩展接受有/无前导 `_`，官方 SDK 添加该前缀。无关 ACP 消息继续交给 stock 实现。
-- live 去重只针对已投影的文本/推理，不吞掉图像、工具、用量或其他更新；关闭 live 后保留 committed 路径。传输失败不等于有可靠重放保证。
+- **默认值不等于实际值**：`default_permission_preset` 是 profile 默认，不能补作会话事实。
+- `permission_preset` 和 select 的 `currentValue` 必须来自实际回读。
+- 未知时省略 actual，置 `permission_preset_known: false`，不展示无真实 currentValue 的 select。
+- 实际值不在目录中时保留 actual，但不展示该 select。
+- **写入不等于确认**：显式切换须回读一致才成功；不可读或不一致返回 `-32602`。
+- 初始预设是请求，不是强制前置条件；失败仍可能创建会话，须标记 fallback/未确认。
+- 安全客户端必须核验 actual/known/confirmed，不满足要求就不发送 prompt。
+- `permissionPresets: false` 必须在本地拒绝写入，不是只隐藏 UI，更不能透传 stock。
+- 关闭后标准 permission_mode 及两个别名返回 `-32602`；扩展 permission set/get 返回 `-32601`，服务零写入。
+- `models: false` 省略目录；`streaming: false` 不安装 live 订阅，保留 committed 输出。
+- 目录、流式可降级，不得据此将权限失败描述为“继续执行即可”。
+- 默认权限由 profile 决定；read-only 不是文件读取白名单，工具分类也不是授权机制。
+- 不以自动 allow、full-access 或默认值回填来掩盖权限故障。
 
-### 权限 fail-closed，目录/流式 fail-soft
+## 检查与安全
 
-**不能用“所有可选能力失败都降级”概括安全行为。**
+- 开工、交付前查看 `git status --short` 和 diff，发现范围外修改先确认来源。
+- 文档任务只需核对源码、Markdown 本地路径和 `git diff --check`；protocol 单测可选。
+- 默认离线入口：`tools/run-safe-checks.sh`；不启动 DSH、不安装依赖、不读取真实凭据。
+- 权限单测用 fake ctx/service；通过不等于真实 DSH 权限服务已验收。
+- helper 测试须显式选择 `--with-helpers`，缺依赖应报告阻塞，不自动安装。
+- DSH 诊断与 fake-only helper 测试分开；不发 prompt 也可能读凭据、写状态或联网。
+- **禁止默认运行 live probe**：`test/probe.py` 调用 `test/spike_lib.py` 的 `prepare_home`。
+- `prepare_home` 可能链接调用者的真实 credential store；临时 DSH_HOME 不等于隔离。
+- `dsh_env` 继承环境，并非秘密 allowlist；ProbeClient 可能自动 allow，且实现文件读写回调。
+- Live 测试须单独确认 home/profile、凭据、网络、费用、权限和输出位置。
+- 隔离诊断用 fake HOME/DSH_HOME、清理 key/token/NODE_OPTIONS、限制 PATH，不调用 prepare_home。
+- 不读取或公开真实 `.env`、credential store、密钥、token 或私有配置，除非明确授权该动作。
+- dump、probe、日志和错误文本可能含秘密；公开前独立脱敏，不直接上传原始输出。
+- 公开示例用合成值，不写私有路径、IP、用户名、会话标识或内部验收产物。
+- helper 的 check/print 也读凭据；它不是秘密管理器，credential-service 与模型发现的因果仍未解决。
+- 状态卡只做启动采样；不自动安装、重启或添加 cron。
 
-- 权限切换要求服务和目标会话有效，标准 `permission_mode` 还验证目录中的预设值。显式切换失败返回 `-32602`，不得伪造成功、自动放宽或静默切到更强预设。
-- **`default` 与 actual 分离**：`default_permission_preset` 是 profile 默认；`permission_preset` / `currentValue` 只能来自会话回读，未知时省略并置 `permission_preset_known: false`。禁止用 `?? catalog.default` 之类回退填补会话事实；未知时宁可不广告 `permission_mode` select。
-- **写入后必须回读核实**：`service.set()` 返回不抛异常不代表已生效。回读一致才算成功；回读不可用或值不同都要返回错误并提示客户端停止，不得返回“已确认”结果。
-- **`permissionPresets: false` 是关闭而非隐藏**：标准 `permission_mode` 与别名返回 `-32602`，`qwenpaw/permission/{set,get}` 返回 `-32601`，全部在 bridge 本地拒绝、不透传给 stock，`service.set` 零调用。该开关只覆盖 bridge 自有热切换面，不代表能控制 stock/DSH 的其他权限能力或 profile 默认权限。
-- 初始 `_meta.qwenpaw.permission_preset` 是请求而非强制约束：应用失败时，现有实现仍可能创建会话，并标记 `requested_permission_preset` / `permission_preset_fallback: true`。不要把它描述为服务端严格拒绝会话。安全客户端应核验实际预设，不满足要求就不发 prompt。
-- 默认权限由 DSH profile 决定，不承诺自动是 read-only。新增测试/示例优先使用最小权限；不得用 full-access 或自动 allow 掩盖权限故障。
-- 模型目录查询失败可跳过 provider/可选字段或返回空数组；关闭目录时省略字段。无 live 事件、订阅失败或关闭 live 时，回退 stock committed 投影。
-- 装饰异常时原帧转发是可用性策略，不是权限已满足的证据；不得在权限写入失败后继续执行受保护动作。
+## 文档、发布与交付
 
-## 4. 按任务选择验证，不默认跑全部
-
-| 任务 | 适用检查 | 明确不能证明什么 |
-| --- | --- | --- |
-| README/指南/本地链接 | 阅读涉及的源文件与 package，校验 Markdown 本地路径，`git diff --check`；可跑 protocol 单测 | 不证明真实安装、流式、权限或跨平台通过 |
-| 协议常量、包名/版本 | `node --test test/protocol.test.js` | 现有四项测试只检查名称、版本与协议词汇 |
-| JS 改动 | `for f in lib/*.js; do node --check "$f"; done`，再选相关单测/隔离测试（权限面：`node --test test/permission_boundaries.test.js`） | 语法通过不等于 runtime 集成通过；fake ctx 测试不等于 DSH 服务行为 |
-| 发布内容清单审查 | 经任务允许后 `npm pack --dry-run`，对照 `package.json.files` | 不安装，不等于发布；不能声称 source helpers 已进入 npm |
-| env helper 行为 | 依赖齐备时 `bash tools/tests/test-env-sync.sh`、`python3 tools/tests/test-atomic.py`；或显式 `tools/run-safe-checks.sh --with-helpers` | fake-only，临时文件；不证明真实 credential-service 或模型发现正常 |
-| runner 白名单/隔离 | `tools/run-safe-checks.sh`、`bash tools/tests/test-runner.sh` | 证明脚本只跑固定离线入口、不执行 live sentinel；不证明真实 DSH 集成 |
-| 模型目录/凭据服务采样 | 先读 [diagnostics/README.md](diagnostics/README.md)，仅已配置的隔离 fake profile；启动前单独确认 | 不发 prompt 仍可能有 DSH 启动副作用；时间差不证明因果 |
-| live / committed / 权限集成 | 单独授权后使用 [test/probe.py](test/probe.py) 与 [TESTING.md](TESTING.md) | 不能默认运行，不能替代另一个仓库的 QwenPaw 端测试 |
-| status card | 先静态检查 [status-plugin/](status-plugin/README.md)；启动 web/访问 API 另行确认 | 卡片只表示启动采样，不是持续监控或真实模型验收 |
-
-默认文档检查命令不需要 DSH、联网、安装依赖或读取真实凭据：
-
-```sh
-node --test test/protocol.test.js
-git diff --check
-```
-
-**Fake-only env 测试与 DSH 诊断必须分开：**前者生成临时 home 和假值，不启动 DSH；后者会运行 profile/plugin 代码，必须预先检查。不得为了跑文档测试自动下载依赖、安装 profile 或创建服务。
-
-### 高风险测试入口
-
-- [test/spike_lib.py](test/spike_lib.py) 的 `prepare_home` 会在目标缺少 credential store 时尝试链接调用者 home 下的真实 store；[test/probe.py](test/probe.py) 会调用它。临时 `DSH_HOME` **不等于隔离**。
-- `dsh_env` 从当前环境复制变量，再清理部分 DSH 标志；不是密钥 allowlist。`ProbeClient` 默认许可决策可能选择 allow，且实现了读写文件回调。不得作为默认安全 CI 客户端。
-- Live probe 会发真实 prompt、创建工作目录、切换预设，可能有网络、费用和凭据访问。必须针对 home/profile、凭据来源、权限、费用和输出位置获得单独明确授权；不读真实凭据来“确认环境”。
-- Fake-only 诊断使用一次性 fake HOME 与显式 fake DSH_HOME，清理继承 key/token、`NODE_OPTIONS` 等配置，限制 PATH，尽可能使用隔离网络与非网络 adapter。只可按需链接已审查的代码/依赖，不链接真实凭据或 `.env`，不调用 `prepare_home`。
-- 缺少 profile 返回 `not-verified` / 退出 2 不是通过。失败、未运行、历史通过和本轮通过要分别报告。
-
-## 5. 可选组件与未解决问题
-
-- [tools/](tools/README.md)：源码限定、手动 opt-in 的 env helper，不是 bridge runtime。读取 `.credentials.yaml` 后派生 `.env`，会多一份明文副本；`--check` / `--print` 也读凭据，真实 home 必须另行授权。**多行 quoted 赋值/孤儿行是整文件拒绝**（write/`--check`/`--print` exit 2，不改原文件）；写入前比较候选与原文件的全部非托管键摘要。保持这些保守语义，不新增通用 dotenv 编辑器。
-- helper 采用 `0600` 临时文件、验证和原子替换，拒绝文件级符号链接；它不是并发锁、秘密管理器或父目录安全方案。已同步目标不自动修复权限。保持文档的这些限制，不用“原子写入”宣称整体绝对安全。
-- helper 要求 Python >=3.10 + PyYAML、Node >=22.9。Linux 已验证，macOS 未测试，原生 Windows 不受支持；不能把该限制套用到根 bridge。bridge 的 macOS/Windows 状态是未验证，而非已判定不能运行。
-- [diagnostics/](diagnostics/README.md)：只是假值采样样例，不是安装器、live credential test 或已证明的修复。**credential-service 与模型发现问题仍未解决**，不声称是注册时机、缓存或凭据加载顺序导致，也不声称 helper 已修复根因。
-- [status-plugin/](status-plugin/README.md)：独立 `dsh-qwenpaw-bridge-status` 包，仅 web profile 启动时请求 QwenPaw `/api/harnesses`。不是根 ACP 包，不自动安装、不自动重启、不新增 cron。
-
-## 6. 隐私与输出纪律
-
-- 不读取、复制、链接或输出真实 credential store、`.env`、API key、token、私有配置，除非用户明确授权对应目标与动作。文档任务不需要任何此类访问。
-- 公开文档只用占位路径和合成示例；不写私有主机路径、IP、用户名、会话标识或部署状态。公共 GitHub 链接可以保留。
-- 原始 dump/probe/log 可能带路径、模型路由、会话信息或服务错误；错误文本不保证无秘密。不要直接上传或贴进 issue/README；独立审查、脱敏后只记录必要事实。
-- 不把生成报告、cloud 验证产物、incident 笔记或凭据清单放进仓库；不得让诊断样例默认接触真实服务。
-- 不改他人的未提交文件，不执行破坏性清理命令。发现意外 diff 先确认来源，再决定如何处理。
-
-## 7. 文档改动、发布与交付
-
-1. 开工先看 `git status --short`、现有文档和涉及源码，确定归属范围；不要覆盖未读过、需保留的文件。
-2. 只改获授权内容。全篇重写可以完整替换；局部调整使用精准编辑。
-3. 纯文档或 source-only helper 说明更新**不要求版本 bump**。不要为普通文档改写修改 `package.json`、`BRIDGE_VERSION`、代码或依赖。示例应符合当前 package version / protocol。
-4. 仅在另行授权的版本发布任务中同步包版本与 `BRIDGE_VERSION`；只有破坏性 wire shape 改动才考虑 bump `META_PROTOCOL`，并审查客户端兼容性。`status-plugin` 是独立包，是否升版单独决定，不能顺手跟随根包。
-5. **发布顺序**：先更新 README/CHANGELOG，再 bump `package.json` 与 `BRIDGE_VERSION`，最后用 `npm pack --ignore-scripts`（或等价的 `files` 白名单 tar）从最终源码生成 TGZ；产物名、tag 名与清单版本必须一致（本仓库为 `v1.1.0` / `1.1.0`）。构建后核对成员清单、跑离线 runner、记录 SHA256；不要把 TGZ、构建日志、私有验收报告或本机绝对路径提交进仓库。
-6. **授权不是常设的**：某次发布获得批准，不等于以后任何 push/tag/npm publish/GitHub Release 都被自动授权；每次公开动作仍需针对目标与版本单独确认。
-7. `git commit`、push、tag、npm publish、依赖安装、profile 修改、凭据访问、进程/服务重启及模型调用分别需要相应授权；“更新 README”不包含这些动作。
-8. 完成前核对精确 diff 和本地链接，跑任务所需的最低风险检查。交付用通俗语言说明“改了什么、结果如何”，列出修改文件、实际检查及未运行的高风险测试，不虚构验证。
+- 完整重写前先读原文；局部修改用精准编辑。纯文档不改代码、测试、依赖或包版本。
+- main 文档可以晚于已发布 tag；不要为补文档重打已发布 TGZ/ZIP，详见开发说明。
+- 发布必须另行授权；不存在常设的 commit、push、tag、pack、npm publish 或 GitHub Release 许可。
+- 安装依赖、修改 profile、访问真实凭据、重启和模型调用也需要各自对应的授权。
+- 获准发布后，先定稿 README/CHANGELOG，再同步 package 与 BRIDGE_VERSION；破坏性 wire 变更才考虑改协议号。
+- 从最终源码按 package.files 打包，禁用 lifecycle scripts，核对成员、版本、tag、SHA256 并跑离线检查。
+- status-plugin 独立发版，不跟随根包自动升版；根包不夹带源码工具、测试或诊断产物。
+- 交付列出精确修改路径、实际执行的检查、失败/未运行项；区分历史证据、本轮通过和未验证能力。
+- 不把语法检查、fake 测试或其他仓库的集成结果写成全部 bridge 功能已实测。
